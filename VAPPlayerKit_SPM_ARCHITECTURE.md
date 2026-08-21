@@ -712,6 +712,7 @@ VAPPlayerKit/
 │   ├── VAPPlayerKitRendererTests/
 │   ├── VAPPlayerKitObjCTests/
 │   └── Fixtures/
+│       └── VAP/                 提交到仓库的 VAP 样例，测试与 Demo 共用
 ├── Examples/
 │   ├── SwiftExample/
 │   └── ObjectiveCExample/
@@ -938,8 +939,8 @@ GitHub 仓库必须同时包含：
 
 - README 只描述通用 VAPPlayerKit，不出现任何宿主项目名称、业务对象或本地绝对路径。
 - 提供 LICENSE、版本策略、CHANGELOG 和迁移说明。
-- 测试视频必须拥有明确许可证，或使用自动生成的最小 fixture。
-- 不提交真实用户图片、业务资源、内网地址、签名文件和缓存。
+- 测试与 Demo 使用仓库内 `Tests/Fixtures/VAP/` 的样例（清单见该目录 README）。非法 XML 伪装 mp4 作为负向 fixture。不要把这批资源加入 gitignore。
+- 不提交真实用户图片、内网地址、签名文件和缓存。
 - CI 至少执行 Swift 编译、Swift 单元测试、Objective-C demo 编译和 Metal resource 检查。
 - 使用 SemVer；破坏公开 API 时升级 major。
 - 每次 release 记录支持的 iOS、codec、VAP metadata version 和已知限制。

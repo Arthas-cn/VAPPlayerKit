@@ -46,4 +46,12 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertEqual(PlaybackError.cancelled.asNSError().domain, VPKPlaybackErrorDomain)
         XCTAssertEqual(PlaybackError.cancelled.asNSError().code, PlaybackErrorCode.cancelled.rawValue)
     }
+
+    func testCommittedVAPFixturesExist() {
+        XCTAssertTrue(FileManager.default.fileExists(atPath: VAPFixture.defaultPlayableURL.path))
+        XCTAssertGreaterThanOrEqual(VAPFixture.allMP4URLs.count, 19)
+        for name in VAPFixture.invalidXMLNames {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: VAPFixture.url(name).path))
+        }
+    }
 }

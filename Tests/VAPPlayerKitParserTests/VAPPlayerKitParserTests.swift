@@ -23,4 +23,12 @@ final class VAPPlayerKitParserTests: XCTestCase {
             XCTAssertEqual(playbackError.code, .invalidVapc)
         }
     }
+
+    func testInvalidXMLFixtureIsNotAValidMP4Header() throws {
+        let url = VAPFixture.url(VAPFixture.invalidXMLNames[0])
+        let data = try Data(contentsOf: url)
+        XCTAssertFalse(data.starts(with: Data("ftyp".utf8)))
+        let prefix = String(data: data.prefix(32), encoding: .utf8) ?? ""
+        XCTAssertTrue(prefix.contains("xml") || prefix.contains("Error"))
+    }
 }

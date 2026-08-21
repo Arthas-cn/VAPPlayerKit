@@ -45,12 +45,19 @@ VPKPlaybackOptions *options = VPKPlaybackOptions.defaultOptions;
 
 打开 `VAPPlayerKit.xcworkspace` 可同时编译 Swift Package、SwiftExample 和 ObjectiveCExample。
 
+示例 App 会把 `Tests/Fixtures/VAP` 打进 Bundle。点 **Play Fixture** 即播放默认样例：
+
+`e9b6b7196780ea5f64b9f05034571f12a96787278ed678c83141c7913af7318a.mp4`
+
+完整清单见 [`Tests/Fixtures/README.md`](Tests/Fixtures/README.md)。这些文件需要随仓库提交，供单元测试和 Demo 共用。
+
 ## 工程结构
 
 ```
 Sources/VAPPlayerKit/          Swift 实现与公开 API
 Sources/VAPPlayerKitObjC/      Objective-C header-only facade
-Tests/                         单元测试与 fixture
+Tests/                         单元测试
+Tests/Fixtures/VAP/            提交到仓库的 VAP 样例（测试与 Demo 共用）
 Examples/SwiftExample          Swift 示例 App
 Examples/ObjectiveCExample     Objective-C 示例 App
 ```
