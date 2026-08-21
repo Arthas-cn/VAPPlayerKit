@@ -15,7 +15,7 @@ typedef NS_ENUM(NSInteger, VPKPlaybackErrorCode) {
     VPKPlaybackErrorCodeInvalidVapc,
     /// 设备不支持该 codec。
     VPKPlaybackErrorCodeUnsupportedCodec,
-    /// 创建硬解 session 失败。
+    /// 创建系统解码管线失败。
     VPKPlaybackErrorCodeDecoderCreationFailed,
     /// 解码运行失败。
     VPKPlaybackErrorCodeDecoderFailed,

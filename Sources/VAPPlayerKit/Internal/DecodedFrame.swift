@@ -13,4 +13,6 @@ struct DecodedFrame {
     let presentationTime: CMTime
     /// 该 sample 的展示时长，禁止用平均 FPS 覆盖。
     let duration: CMTime
+    /// presentation order 中的零基帧序号，用于查询 vapc frame attachment。
+    let index: Int
 }

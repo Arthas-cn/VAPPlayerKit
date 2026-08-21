@@ -14,11 +14,11 @@ public enum PlaybackErrorCode: Int, Sendable {
     case invalidMP4
     /// vapc JSON 非法、越界或版本无法识别。
     case invalidVapc
-    /// 编码格式当前设备无法硬解。
+    /// 编码格式当前设备无法解码。
     case unsupportedCodec
-    /// VTDecompressionSession 创建失败。
+    /// 系统解码管线创建失败。
     case decoderCreationFailed
-    /// 解码过程中 VT 返回不可恢复错误。
+    /// 解码过程中系统管线返回不可恢复错误。
     case decoderFailed
     /// 动态资源在超时前没有完成、失败或取消。
     case dynamicContentTimeout

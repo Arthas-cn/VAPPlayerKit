@@ -12,4 +12,24 @@ final class VAPPlayerKitTimingTests: XCTestCase {
         clock.resume()
         XCTAssertGreaterThanOrEqual(clock.currentMediaTime(), paused)
     }
+
+    @MainActor
+    func testLoopWaitsUntilLastFrameDurationHasElapsed() {
+        XCTAssertFalse(PlaybackSession.shouldCompleteLoop(
+            sourceEnded: true,
+            bufferedFrameCount: 0,
+            hasPendingFrame: false,
+            renderPending: false,
+            lastFrameEndTime: 1.04,
+            mediaTime: 1.03
+        ))
+        XCTAssertTrue(PlaybackSession.shouldCompleteLoop(
+            sourceEnded: true,
+            bufferedFrameCount: 0,
+            hasPendingFrame: false,
+            renderPending: false,
+            lastFrameEndTime: 1.04,
+            mediaTime: 1.04
+        ))
+    }
 }

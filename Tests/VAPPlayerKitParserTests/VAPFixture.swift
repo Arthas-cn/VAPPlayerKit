@@ -18,4 +18,10 @@ enum VAPFixture {
     static func url(_ fileName: String) -> URL {
         directory.appendingPathComponent(fileName)
     }
+
+    static var allMP4URLs: [URL] {
+        (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil))?
+            .filter { $0.pathExtension.lowercased() == "mp4" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
+    }
 }

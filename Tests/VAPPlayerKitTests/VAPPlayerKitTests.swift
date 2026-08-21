@@ -20,6 +20,12 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertEqual(copy.loopCount, 2)
     }
 
+    func testNegativeLoopCountFallsBackToSinglePlayback() {
+        let options = PlaybackOptions.defaultOptions
+        options.loopCount = -1
+        XCTAssertEqual(options.loopCount, 1)
+    }
+
     func testModuleBundleIsAvailable() {
         XCTAssertEqual(Bundle.module.bundleURL.pathExtension, "bundle")
     }
@@ -39,6 +45,14 @@ final class VAPPlayerKitTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
+    }
+
+    @MainActor
+    func testClearHidesDrawableWithoutActiveSession() {
+        let player = PlayerView()
+        XCTAssertFalse(player.metalLayer.isHidden)
+        player.clear()
+        XCTAssertTrue(player.metalLayer.isHidden)
     }
 
     func testErrorDomainMatchesObjCFacade() {

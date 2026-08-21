@@ -21,6 +21,10 @@ public final class AssetMetadata: NSObject {
     @objc public let containsAudio: Bool
     /// 例如 `h264` 或 `hevc`。
     @objc public let codec: String
+    /// vapc 版本。legacy 无 vapc 文件为 0。
+    @objc public let vapVersion: Int
+    /// vapc 声明的动态 source；legacy 文件为空。
+    @objc public let dynamicSources: [SourceMetadata]
 
     /// 由 `AssetInspector` 在后台解析完成后构造。宿主也可以在测试里直接创建。
     @objc public init(
@@ -30,7 +34,9 @@ public final class AssetMetadata: NSObject {
         frameCount: Int,
         duration: TimeInterval,
         containsAudio: Bool,
-        codec: String
+        codec: String,
+        vapVersion: Int = 0,
+        dynamicSources: [SourceMetadata] = []
     ) {
         self.encodedVideoSize = encodedVideoSize
         self.canvasSize = canvasSize
@@ -39,6 +45,8 @@ public final class AssetMetadata: NSObject {
         self.duration = duration
         self.containsAudio = containsAudio
         self.codec = codec
+        self.vapVersion = vapVersion
+        self.dynamicSources = dynamicSources
         super.init()
     }
 }

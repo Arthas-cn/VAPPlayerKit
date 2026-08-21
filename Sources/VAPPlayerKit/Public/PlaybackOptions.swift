@@ -7,7 +7,11 @@ import UIKit
 @objc(VPKPlaybackOptions)
 public final class PlaybackOptions: NSObject, NSCopying {
     /// 总播放次数。`1` 播放一次，`2` 播放两次，`0` 无限循环。
-    @objc public var loopCount: Int = 1
+    @objc public var loopCount: Int = 1 {
+        didSet {
+            if loopCount < 0 { loopCount = 1 }
+        }
+    }
     /// 按 `canvasSize` 计算的内容缩放方式，不用编码分辨率。
     @objc public var contentMode: UIView.ContentMode = .scaleAspectFit
     /// 音频策略，默认静音透明特效。

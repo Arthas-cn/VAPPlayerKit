@@ -2,6 +2,8 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+@class VPKSourceMetadata;
+
 /// packed 视频中 Alpha 相对 RGB 的方向。对应 Swift `AlphaMode`。
 typedef NS_ENUM(NSInteger, VPKAlphaMode) {
     VPKAlphaModeLeft = 0,
@@ -27,6 +29,10 @@ typedef NS_ENUM(NSInteger, VPKAlphaMode) {
 @property (nonatomic, readonly, assign) BOOL containsAudio;
 /// 例如 h264 / hevc。
 @property (nonatomic, readonly, copy) NSString *codec;
+/// vapc 版本；legacy 无 vapc 文件为 0。
+@property (nonatomic, readonly, assign) NSInteger vapVersion;
+/// vapc 动态 source 槽位。
+@property (nonatomic, readonly, copy) NSArray<VPKSourceMetadata *> *dynamicSources;
 
 - (instancetype)initWithEncodedVideoSize:(CGSize)encodedVideoSize
                               canvasSize:(CGSize)canvasSize
@@ -34,7 +40,9 @@ typedef NS_ENUM(NSInteger, VPKAlphaMode) {
                               frameCount:(NSInteger)frameCount
                                 duration:(NSTimeInterval)duration
                            containsAudio:(BOOL)containsAudio
-                                   codec:(NSString *)codec;
+                                   codec:(NSString *)codec
+                              vapVersion:(NSInteger)vapVersion
+                          dynamicSources:(NSArray<VPKSourceMetadata *> *)dynamicSources;
 
 @end
 

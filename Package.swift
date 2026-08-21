@@ -31,8 +31,7 @@ let package = Package(
                 .linkedFramework("Metal"),
                 .linkedFramework("MetalKit"),
                 .linkedFramework("QuartzCore"),
-                .linkedFramework("UIKit"),
-                .linkedFramework("VideoToolbox")
+                .linkedFramework("UIKit")
             ]
         ),
         .target(

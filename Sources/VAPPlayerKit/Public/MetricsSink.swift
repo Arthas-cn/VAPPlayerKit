@@ -12,7 +12,7 @@ public enum MetricsEvent: Sendable {
     case renderedFrame
     /// 因落后于媒体时钟而丢弃一帧。
     case droppedFrame
-    /// VT session 重建一次。超过上限应 fail，而不是继续重建。
+    /// 解码管线重建一次。超过上限应 fail，而不是继续重建。
     case decoderRebuild
     /// 单个动态 tag 的解析耗时。
     case dynamicResolveDuration(TimeInterval)

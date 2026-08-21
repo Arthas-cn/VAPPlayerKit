@@ -9,7 +9,7 @@ public enum AudioMode: Int, Sendable {
     case muted
     /// 播放 MP4 内嵌音轨，并与 pause / resume / stop 绑定。
     case embedded
-    /// 组件只发出音频相关事件，由宿主自己的播放器负责出声。
+    /// 组件不创建音频资源，由宿主自己的播放器和同步策略负责出声。
     case external
     /// 完全忽略音轨；metadata 仍可报告 `containsAudio`。
     case disabled

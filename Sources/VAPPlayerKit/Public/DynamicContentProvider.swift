@@ -1,7 +1,7 @@
 import UIKit
 
 /// 动态文字的绘制属性。圆角、裁剪等业务处理应在 provider 侧完成，不要放进每帧 Metal 路径。
-public struct TextAttributes {
+public struct TextAttributes: @unchecked Sendable {
     /// 用于离屏绘制文字纹理的字体。
     public var font: UIFont
     /// 文字颜色。
@@ -16,12 +16,12 @@ public struct TextAttributes {
 /// 宿主提供的动态内容。用枚举而不是字符串猜测类型。
 ///
 /// 对照 `vap-master` 的 `contentForVapTag:` / `loadVapImageWithURL:`，但结果类型明确。
-public enum DynamicContent {
+public enum DynamicContent: @unchecked Sendable {
     /// 由组件按 `source.slotSize` 预绘成纹理。
     case text(String, attributes: TextAttributes)
     /// 已经解码的图片，组件会按 slot 预缩放。
     case image(UIImage)
-    /// 仅表达「这是一个图片 URL」。下载仍由宿主完成；当前 Phase 不在组件内发网络请求。
+    /// 仅表达「这是一个图片 URL」。下载仍由宿主完成；组件不会发网络请求。
     case imageURL(URL)
     /// 该 tag 本轮不渲染。
     case hidden
@@ -58,7 +58,7 @@ public protocol DynamicContentProvider: AnyObject {
     )
 }
 
-/// Objective-C 简化版动态内容协议。Phase 0 先用 `UIImage` 表达结果。
+/// Objective-C 简化版动态内容协议，以 `UIImage` 表达已经加载好的结果。
 @objc(VPKDynamicContentProvider)
 public protocol ObjCDynamicContentProvider: NSObjectProtocol {
     /// 解析 tag。失败时 `image` 为 nil 并给出 `NSError`。
