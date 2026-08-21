@@ -1,7 +1,9 @@
 import Foundation
 import Metal
 
+/// 通过 `Bundle.module` 定位 Metal shader，禁止假设 main bundle 或工作目录相对路径。
 enum ShaderLibrary {
+    /// 优先加载编译好的 metallib；否则读 `.metal` 源码运行时编译；再否则尝试 default library。
     static func make(device: MTLDevice) throws -> MTLLibrary {
         if let url = metallibURL {
             return try device.makeLibrary(URL: url)
@@ -15,10 +17,12 @@ enum ShaderLibrary {
         throw PlaybackError.metalUnavailable
     }
 
+    /// 测试用：metallib 或 metal 源码任一存在即视为资源打包成功。
     static var shaderResourceURL: URL? {
         metallibURL ?? metalSourceURL
     }
 
+    /// `.process("Resources")` 后可能生成 `VPKShaders.metallib` 或 `default.metallib`。
     static var metallibURL: URL? {
         Bundle.module.url(forResource: "VPKShaders", withExtension: "metallib", subdirectory: "Shaders")
             ?? Bundle.module.url(forResource: "VPKShaders", withExtension: "metallib")

@@ -1,11 +1,13 @@
 #include <metal_stdlib>
 using namespace metal;
 
+/// 全屏三角形顶点输出。后续会按 alphaMode 改写 RGB / Alpha 采样坐标。
 struct VPKVertexOut {
     float4 position [[position]];
     float2 texCoord;
 };
 
+/// 覆盖整个 drawable 的 oversized triangle，避免额外 index buffer。
 vertex VPKVertexOut vpk_vertex(uint vid [[vertex_id]]) {
     float2 positions[3] = {
         float2(-1.0, -1.0),
@@ -24,6 +26,9 @@ vertex VPKVertexOut vpk_vertex(uint vid [[vertex_id]]) {
     return out;
 }
 
+/// Phase 0 占位：BT.601 YUV->RGB。后续按 vapc 拆分 RGB/Alpha 区域并输出预乘 alpha。
+///
+/// 对照 `vap-master/iOS/QGVAPlayer/QGVAPlayer/Shaders`。
 fragment float4 vpk_fragment(
     VPKVertexOut in [[stage_in]],
     texture2d<float> yTexture [[texture(0)]],

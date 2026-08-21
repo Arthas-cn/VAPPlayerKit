@@ -1,6 +1,8 @@
 import UIKit
 import VAPPlayerKit
 
+/// Swift 示例：持有 `PlayerView` 并实现 `PlayerDelegate`。
+/// 真正播放需要本地 VAP file URL；Phase 0 的 parser 仍是 stub。
 final class ViewController: UIViewController, PlayerDelegate {
     private let playerView = PlayerView()
     private let statusLabel = UILabel()

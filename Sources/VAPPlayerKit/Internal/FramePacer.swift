@@ -1,10 +1,14 @@
 import Foundation
 import QuartzCore
 
+/// 仅用于 VSYNC 采样的 package-private pacer。不注册宿主 target，不按 FPS 建全局桶。
+///
+/// 对照 `vap-master` 的全局 decode thread pool / FPS dispatcher：这里只服务当前 session。
 final class FramePacer: NSObject {
     private var displayLink: CADisplayLink?
     private var handler: (() -> Void)?
 
+    /// 在主 run loop 的 `.common` 模式采样。重复 start 会先停掉旧 link。
     func start(_ handler: @escaping () -> Void) {
         stop()
         self.handler = handler
@@ -13,12 +17,14 @@ final class FramePacer: NSObject {
         displayLink = link
     }
 
+    /// token 失效或 session stop 时必须立刻移除订阅。
     func stop() {
         displayLink?.invalidate()
         displayLink = nil
         handler = nil
     }
 
+    /// 每次 VSYNC 只询问当前 media time，不按刷新次数盲目消费视频帧。
     @objc private func tick() {
         handler?()
     }

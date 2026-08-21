@@ -18,6 +18,53 @@
 | 播放输入 | 本地 file URL；可扩展为受控的数据源协议 |
 | 推荐解码路径 | VideoToolbox + Metal |
 | 备用验证路径 | AVPlayerItemVideoOutput 或 AVAssetReaderTrackOutput |
+| 本地参考源码 | `vap-master/`（gitignore，仅本地对照，不入库、不复制进 package） |
+
+## 0.1 本地参考源码：`vap-master`
+
+仓库根目录的 `vap-master/` 是 **Tencent VAP / QGVAPlayer** 的完整参考实现，用于对照 VAP 容器格式、Alpha 布局、vapc/vapx 元数据、VideoToolbox 硬解和 Metal 合成行为。它**不是**本组件的实现来源，也不是依赖。
+
+使用规则：
+
+- 只读对照。实现时查阅格式与边界行为，不把旧代码翻译进 `Sources/`。
+- 已写入 `.gitignore`，不提交、不随 GitHub 发布。
+- 不复用 `UIView+VAP` category、`QG`/`HWD` 前缀、`repeatCount` 额外重复次数语义、全局 FPS dispatcher，以及 KVC 私有字段。
+- 公开 API、线程模型、错误域和资源定位全部以本文档和 `Sources/VAPPlayerKit` 为准。
+
+目录对照：
+
+| 参考路径 | 用途 |
+| --- | --- |
+| `vap-master/Introduction.md` | VAP 格式、压缩率和能力说明 |
+| `vap-master/iOS/QGVAPlayer/QGVAPlayer/Classes/` | 旧 iOS 播放器对象图 |
+| `vap-master/iOS/QGVAPlayer/QGVAPlayer/Classes/UIView+VAP.h` | 旧公开 API（category + delegate） |
+| `vap-master/iOS/QGVAPlayer/QGVAPlayer/Classes/MP4Parser/` | MP4 box / sample table 解析 |
+| `vap-master/iOS/QGVAPlayer/QGVAPlayer/Classes/Controllers/Decoders/` | VideoToolbox 硬解 |
+| `vap-master/iOS/QGVAPlayer/QGVAPlayer/Classes/Views/Metal/` | Metal / vapx 合成 |
+| `vap-master/iOS/QGVAPlayer/QGVAPlayer/Shaders/` | 旧 Metal shader |
+| `vap-master/iOS/QGVAPlayerDemo/` | Objective-C 调用方式对照 |
+| `vap-master/iOS/QGVAPlayerDemoSwift/` | 旧 Swift demo 对照 |
+| `vap-master/tool/` | vapc/vapx 工具与 JSON 描述 |
+| `vap-master/Android/` | 跨端行为对照，不迁入 iOS package |
+
+旧类型到新类型的职责映射（命名不兼容，只对照职责）：
+
+| vap-master | VAPPlayerKit |
+| --- | --- |
+| `UIView+VAP` / `QGVAPWrapView` | `PlayerView` / `VPKPlayerView` |
+| `HWDMP4PlayDelegate` | `PlayerDelegate` / `VPKPlayerDelegate` |
+| `playHWDMP4:repeatCount:` | `play(url:options:)` + `PlaybackOptions.loopCount` |
+| `HWDMP4EBOperationType` | `BackgroundPolicy` |
+| `contentForVapTag:` / `loadVapImageWithURL:` | `DynamicContentProvider` |
+| `QGVAPConfigModel` / `QGVAPConfigManager` | `AssetMetadata` / `AssetInspector` / `VapcReader` |
+| `QGMP4Parser` / `QGMP4Box` | `AssetInspector`（MP4 解析阶段） |
+| `QGMP4FrameHWDecoder` | `VideoToolboxFrameSource` |
+| `QGAnimatedImageBufferManager` | `FrameRingBuffer` |
+| `QGAnimatedImageDecodeThreadPool` / 全局 FPS 桶 | `FramePacer`（仅当前 session，禁止全局 dispatcher） |
+| `QGHWDMetalRenderer` / `QGVAPMetalRenderer` | `MetalRenderer` |
+| `QGHWDShaders.metal` | `Sources/VAPPlayerKit/Resources/Shaders/VPKShaders.metal` |
+| `QGMP4AnimatedImageFrame` | `DecodedFrame` |
+| `setMute:` | `AudioMode` |
 
 ## 1. 这次重写的架构边界
 
@@ -951,6 +998,7 @@ GitHub 仓库必须同时包含：
 
 ## 17. 参考资料
 
+- 本地参考实现：仓库根目录 `vap-master/`（详见 [0.1 本地参考源码：vap-master](#01-本地参考源码vap-master)）。只对照格式与行为，不复制旧 API。
 - [Apple：Importing Swift into Objective-C](https://developer.apple.com/documentation/swift/importing-swift-into-objective-c)
 - [Swift Package Manager：Package targets](https://docs.swift.org/swiftpm/documentation/packagemanagerdocs/target/)
 - [Swift Package Manager：Creating C language targets](https://docs.swift.org/swiftpm/documentation/packagemanagerdocs/creatingclanguagetargets/)

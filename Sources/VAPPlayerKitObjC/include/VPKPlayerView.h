@@ -6,19 +6,28 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 公开播放视图。运行时由 Swift `PlayerView` 实现，本 header 只做稳定的 ObjC 声明。
+///
+/// 对照 `vap-master` 的 `UIView+VAP`，但这里是独立 UIView 子类，不再提供 category。
 @interface VPKPlayerView : UIView
 
 @property (nonatomic, weak, nullable) id<VPKPlayerDelegate> delegate;
 @property (nonatomic, weak, nullable) id<VPKDynamicContentProvider> dynamicContentProvider;
 
+/// 解析 metadata，不自动播放。completion 只回调一次。
 - (void)prepareWithURL:(NSURL *)URL
                options:(VPKPlaybackOptions *)options
             completion:(void (^)(VPKAssetMetadata * _Nullable metadata, NSError * _Nullable error))completion;
 
+/// 准备并播放。可与 prepare 共用同一套 session 逻辑。
 - (void)playWithURL:(NSURL *)URL options:(VPKPlaybackOptions *)options;
+/// 暂停，冻结媒体时钟。
 - (void)pause;
+/// 恢复播放。
 - (void)resume;
+/// 取消当前 session。
 - (void)stop;
+/// 停止并清掉当前画面。
 - (void)clear;
 
 @end
