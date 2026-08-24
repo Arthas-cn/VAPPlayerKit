@@ -77,8 +77,9 @@ VPKPlaybackOptions *options = VPKPlaybackOptions.defaultOptions;
 Objective-C 也可以将同一 URL 的 `VPKAssetMetadata` 传给
 `playWithURL:metadata:options:`；仅 `reusableForPlayback == YES` 的 metadata 可用于该优化入口。
 
-`VPKPlayerViewDelegate` 提供开始、metadata、完成和失败回调；动态图片可通过
-`VPKDynamicContentProvider` 注入。
+`VPKPlayerViewDelegate` 提供开始、metadata、完成和失败回调；动态内容可通过
+`VPKDynamicContentProvider` 注入。文字槽位在 completion 中返回 `replacementText`，
+组件会使用与 Swift `.textReplacement` 相同的自动字号估算；图片槽位返回 `UIImage`。
 
 Objective-C provider 也可实现可选的 `fontForTag:`，为文字 tag 指定 `UIFont`；未实现或返回 `nil` 时使用同样的自动估算和 UIKit 尾部截断策略。
 
@@ -89,7 +90,7 @@ Objective-C provider 也可实现可选的 `fontForTag:`，为文字 tag 指定 
 - `vapc` metadata v1 / v2，支持 AlphaLeft、AlphaRight、AlphaTop、AlphaBottom。
 - 无 `vapc` 的旧格式按“左侧 Alpha、右侧 RGB、等宽画布”兼容。
 - Metal 透明合成、PTS 时钟、固定容量帧缓冲、过期帧丢弃和多 session token 隔离。
-- Swift typed 动态文字/图片，以及 Objective-C `UIImage` 动态内容注入。
+- Swift typed 动态文字/图片，以及 Objective-C `UIImage` / 文字替换注入。
 - 静音、MP4 内嵌音频和宿主管理外部音频三种策略。
 
 动态 `imageURL` 只用于表达资源地址，组件不会发起网络请求；provider 应先下载并返回

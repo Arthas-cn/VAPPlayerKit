@@ -84,14 +84,15 @@ public extension DynamicContentProvider {
     func font(forTag tag: String) -> UIFont? { nil }
 }
 
-/// Objective-C 简化版动态内容协议，以 `UIImage` 表达已经加载好的结果。
+/// Objective-C 动态内容协议。图片槽位返回 `UIImage`；文字槽位返回替换字符串，
+/// 由组件按 vapc 样式自动估算字号，与 Swift `.textReplacement` 一致。
 @objc(VPKDynamicContentProvider)
 public protocol ObjCDynamicContentProvider: NSObjectProtocol {
-    /// 解析 tag。失败时 `image` 为 nil 并给出 `NSError`。
+    /// 解析 tag。失败时给出 `NSError`。文字替换传 `replacementText`，图片传 `image`。
     func resolveTag(
         _ tag: String,
         source: SourceMetadata,
-        completion: @escaping (UIImage?, NSError?) -> Void
+        completion: @escaping (UIImage?, String?, NSError?) -> Void
     )
 
     /// 可选的 tag 字体覆盖；未实现或返回 nil 时使用自动字号估算。

@@ -1,6 +1,5 @@
 #import <UIKit/UIKit.h>
-@import VAPPlayerKitObjC;
 
-/// Objective-C 示例：通过 header-only facade 调用 `VPKPlayerView`。
-@interface ViewController : UIViewController <VPKPlayerDelegate>
+/// 自动扫描 Bundle/VAP 的资源浏览器。每个文件对应一行，点击进入完整播放器实验室。
+@interface ViewController : UIViewController
 @end

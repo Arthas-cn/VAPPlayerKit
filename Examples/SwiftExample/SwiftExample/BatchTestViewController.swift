@@ -192,15 +192,7 @@ final class BatchTestViewController: UIViewController, PlayerDelegate, DynamicCo
         source: SourceMetadata,
         completion: @escaping (DynamicContent?, Error?) -> Void
     ) {
-        if source.kind == .text {
-            completion(.textReplacement("VAP Swift"), nil)
-            return
-        }
-        let image = UIGraphicsImageRenderer(size: source.slotSize).image { context in
-            UIColor.systemBlue.setFill()
-            context.cgContext.fill(CGRect(origin: .zero, size: source.slotSize))
-        }
-        completion(.image(image), nil)
+        completion(nil, nil)
     }
 }
 

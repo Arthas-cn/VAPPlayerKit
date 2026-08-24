@@ -8,7 +8,9 @@
         return;
     }
     UIWindow *window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
-    window.rootViewController = [[ViewController alloc] init];
+    UINavigationController *navigationController = [[UINavigationController alloc] initWithRootViewController:[[ViewController alloc] init]];
+    navigationController.navigationBar.prefersLargeTitles = YES;
+    window.rootViewController = navigationController;
     [window makeKeyAndVisible];
     self.window = window;
 }

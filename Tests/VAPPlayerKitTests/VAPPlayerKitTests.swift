@@ -178,6 +178,32 @@ final class VAPPlayerKitTests: XCTestCase {
     }
 
     @MainActor
+    func testObjCTextReplacementUsesTheSameAutoFittedFontPath() async throws {
+        let resolver = DynamicResolver()
+        let provider = ObjCReplacementTextProviderStub()
+        resolver.objcProvider = provider
+        let replacement = "只提供字符串"
+        let source = VapcSource(
+            id: "nickname",
+            kind: .text,
+            tag: "nickname",
+            slotSize: CGSize(width: 197, height: 52),
+            loadType: "local",
+            fitType: "fitXY",
+            color: "#E7C454",
+            style: "b"
+        )
+        let snapshot = try await resolver.resolve(sources: [source], timeout: 1)
+        guard case .image(let image) = snapshot.contents[source.id] else {
+            return XCTFail("ObjC replacement text should become a text texture")
+        }
+        XCTAssertEqual(image.size, source.slotSize)
+        XCTAssertEqual(provider.requestedTag, source.tag)
+        let attributes = DynamicResolver.replacementTextAttributes(replacement, source: source)
+        XCTAssertGreaterThan(attributes.font.pointSize, source.slotSize.height * 0.22)
+    }
+
+    @MainActor
     func testTextReplacementFitsLongSingleLineInsideNarrowSlot() {
         let replacement = "VERY-LONG-REPLACEMENT"
         let source = VapcSource(
@@ -535,6 +561,19 @@ private final class ReplacementTextProviderStub: DynamicContentProvider {
         completion: @escaping (DynamicContent?, Error?) -> Void
     ) {
         completion(.textReplacement("只提供字符串"), nil)
+    }
+}
+
+private final class ObjCReplacementTextProviderStub: NSObject, ObjCDynamicContentProvider {
+    private(set) var requestedTag: String?
+
+    func resolveTag(
+        _ tag: String,
+        source: SourceMetadata,
+        completion: @escaping (UIImage?, String?, NSError?) -> Void
+    ) {
+        requestedTag = tag
+        completion(nil, "只提供字符串", nil)
     }
 }
 

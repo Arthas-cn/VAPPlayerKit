@@ -99,7 +99,7 @@ final class DynamicResolver {
                         }
                     }
                 } else if let objcProvider {
-                    objcProvider.resolveTag(source.tag, source: metadata) { [weak self] image, error in
+                    objcProvider.resolveTag(source.tag, source: metadata) { [weak self] image, replacementText, error in
                         Task { @MainActor in
                             guard let self, self.generation == generation else {
                                 gate.finish(.failure(PlaybackError.cancelled))
@@ -107,6 +107,13 @@ final class DynamicResolver {
                             }
                             if let error {
                                 gate.finish(.failure(error))
+                            } else if let replacementText {
+                                let resolved = await self.materialize(.textReplacement(replacementText), source: source)
+                                guard self.generation == generation else {
+                                    gate.finish(.failure(PlaybackError.cancelled))
+                                    return
+                                }
+                                gate.finish(.success(resolved))
                             } else if let image {
                                 let resolved = await self.materialize(.image(image), source: source)
                                 guard self.generation == generation else {

@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -15,6 +15,10 @@
 		22A000000000000000000045 /* VAPPlayerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 22A000000000000000000051 /* VAPPlayerKit */; };
 		22A000000000000000000081 /* VAP in Resources */ = {isa = PBXBuildFile; fileRef = 22A000000000000000000080 /* VAP */; };
 		22A000000000000000000083 /* Gifts in Resources */ = {isa = PBXBuildFile; fileRef = 22A000000000000000000082 /* Gifts */; };
+		22A0000000000000000000A0 /* FixtureCatalog.m in Sources */ = {isa = PBXBuildFile; fileRef = 22A000000000000000000091 /* FixtureCatalog.m */; };
+		22A0000000000000000000A1 /* GiftCatalog.m in Sources */ = {isa = PBXBuildFile; fileRef = 22A000000000000000000093 /* GiftCatalog.m */; };
+		22A0000000000000000000A2 /* PlaybackDetailViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 22A000000000000000000095 /* PlaybackDetailViewController.m */; };
+		22A0000000000000000000A3 /* BatchTestViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 22A000000000000000000097 /* BatchTestViewController.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,6 +34,14 @@
 		22A000000000000000000038 /* ViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ViewController.h; sourceTree = "<group>"; };
 		22A000000000000000000080 /* VAP */ = {isa = PBXFileReference; lastKnownFileType = folder; name = VAP; path = ../../Tests/Fixtures/VAP; sourceTree = "<group>"; };
 		22A000000000000000000082 /* Gifts */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Gifts; path = ../Shared/Gifts; sourceTree = "<group>"; };
+		22A000000000000000000090 /* FixtureCatalog.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FixtureCatalog.h; sourceTree = "<group>"; };
+		22A000000000000000000091 /* FixtureCatalog.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FixtureCatalog.m; sourceTree = "<group>"; };
+		22A000000000000000000092 /* GiftCatalog.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GiftCatalog.h; sourceTree = "<group>"; };
+		22A000000000000000000093 /* GiftCatalog.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = GiftCatalog.m; sourceTree = "<group>"; };
+		22A000000000000000000094 /* PlaybackDetailViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PlaybackDetailViewController.h; sourceTree = "<group>"; };
+		22A000000000000000000095 /* PlaybackDetailViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PlaybackDetailViewController.m; sourceTree = "<group>"; };
+		22A000000000000000000096 /* BatchTestViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BatchTestViewController.h; sourceTree = "<group>"; };
+		22A000000000000000000097 /* BatchTestViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BatchTestViewController.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -71,6 +83,14 @@
 				22A000000000000000000031 /* SceneDelegate.m */,
 				22A000000000000000000038 /* ViewController.h */,
 				22A000000000000000000032 /* ViewController.m */,
+				22A000000000000000000090 /* FixtureCatalog.h */,
+				22A000000000000000000091 /* FixtureCatalog.m */,
+				22A000000000000000000092 /* GiftCatalog.h */,
+				22A000000000000000000093 /* GiftCatalog.m */,
+				22A000000000000000000094 /* PlaybackDetailViewController.h */,
+				22A000000000000000000095 /* PlaybackDetailViewController.m */,
+				22A000000000000000000096 /* BatchTestViewController.h */,
+				22A000000000000000000097 /* BatchTestViewController.m */,
 				22A000000000000000000033 /* main.m */,
 				22A000000000000000000034 /* Assets.xcassets */,
 				22A000000000000000000035 /* Info.plist */,
@@ -125,7 +145,7 @@
 			);
 			mainGroup = 22A000000000000000000020;
 			packageReferences = (
-				22A000000000000000000050 /* XCLocalSwiftPackageReference "../../" */,
+				22A000000000000000000050 /* XCLocalSwiftPackageReference "../.." */,
 			);
 			productRefGroup = 22A000000000000000000021 /* Products */;
 			projectDirPath = "";
@@ -158,6 +178,10 @@
 				22A000000000000000000040 /* AppDelegate.m in Sources */,
 				22A000000000000000000041 /* SceneDelegate.m in Sources */,
 				22A000000000000000000042 /* ViewController.m in Sources */,
+				22A0000000000000000000A0 /* FixtureCatalog.m in Sources */,
+				22A0000000000000000000A1 /* GiftCatalog.m in Sources */,
+				22A0000000000000000000A2 /* PlaybackDetailViewController.m in Sources */,
+				22A0000000000000000000A3 /* BatchTestViewController.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -215,7 +239,6 @@
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-
 			};
 			name = Debug;
 		};
@@ -253,8 +276,8 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -266,9 +289,8 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
-								SDKROOT = iphoneos;
+				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
-
 			};
 			name = Release;
 		};
@@ -279,7 +301,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 6T8UP29CAY;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ObjectiveCExample/Info.plist;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -297,7 +319,6 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-
 			};
 			name = Debug;
 		};
@@ -308,7 +329,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 6T8UP29CAY;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ObjectiveCExample/Info.plist;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -326,7 +347,6 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-
 			};
 			name = Release;
 		};
@@ -354,7 +374,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		22A000000000000000000050 /* XCLocalSwiftPackageReference "../../" */ = {
+		22A000000000000000000050 /* XCLocalSwiftPackageReference "../.." */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../..;
 		};
@@ -363,7 +383,7 @@
 /* Begin XCSwiftPackageProductDependency section */
 		22A000000000000000000051 /* VAPPlayerKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 22A000000000000000000050 /* XCLocalSwiftPackageReference "../../" */;
+			package = 22A000000000000000000050 /* XCLocalSwiftPackageReference "../.." */;
 			productName = VAPPlayerKit;
 		};
 /* End XCSwiftPackageProductDependency section */
