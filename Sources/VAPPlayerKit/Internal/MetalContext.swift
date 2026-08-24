@@ -216,7 +216,7 @@ final class MetalContext: @unchecked Sendable {
     private enum ColorBlending {
         /// Video and overlay paths output premultiplied RGB/A.
         case premultipliedOver
-        /// Multiply the destination by `(1 - src.a)` to punch the fusion placeholder.
+        /// Multiply the destination by `(1 - src.a)` to knock out the near-black locator.
         case destinationTimesOneMinusSourceAlpha
     }
 

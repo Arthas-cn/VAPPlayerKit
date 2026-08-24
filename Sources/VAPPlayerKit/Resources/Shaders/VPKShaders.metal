@@ -36,14 +36,17 @@ struct VPKFrameUniforms {
 struct VPKAttachmentUniforms {
     float4 renderRect;
     float4 maskRect;
+    float4 rgbRect;
     uint rotation;
-    uint3 padding;
+    uint colorMatrix;
+    uint2 padding;
 };
 
 struct VPKAttachmentVertexOut {
     float4 position [[position]];
     float2 sourceCoordinate;
     float2 maskCoordinate;
+    float2 canvasCoordinate;
 };
 
 float3 vpk_yuv_to_rgb(texture2d<float> yTexture,
@@ -111,19 +114,28 @@ vertex VPKAttachmentVertexOut vpk_attachment_vertex(
     out.position = float4(canvas.x * 2.0 - 1.0, 1.0 - canvas.y * 2.0, 0.0, 1.0);
     out.sourceCoordinate = corner;
     out.maskCoordinate = uniforms.maskRect.xy + maskCorner * uniforms.maskRect.zw;
+    out.canvasCoordinate = canvas;
     return out;
 }
 
 fragment float4 vpk_attachment_punch_fragment(
     VPKAttachmentVertexOut in [[stage_in]],
     texture2d<float> yTexture [[texture(0)]],
+    texture2d<float> uvTexture [[texture(1)]],
     constant VPKAttachmentUniforms &uniforms [[buffer(0)]]
 ) {
     constexpr sampler linearSampler(address::clamp_to_edge, filter::linear);
     float maskY = yTexture.sample(linearSampler, in.maskCoordinate).r;
     float maskAlpha = saturate((maskY - (16.0 / 255.0)) * (255.0 / 219.0));
-    // Blend dest * (1 - src.a) punches the opaque video placeholder inside the mask.
-    return float4(0.0, 0.0, 0.0, maskAlpha);
+    float2 rgbCoordinate = uniforms.rgbRect.xy + in.canvasCoordinate * uniforms.rgbRect.zw;
+    float3 rgb = saturate(vpk_yuv_to_rgb(
+        yTexture, uvTexture, linearSampler, rgbCoordinate, uniforms.colorMatrix
+    ));
+    // Image slots bake a near-black locator (B) under the colorful animation (A).
+    // Knock out only B so C can blend over A; do not punch gold frames or glow.
+    float peak = max(max(rgb.r, rgb.g), rgb.b);
+    float locator = 1.0 - smoothstep(0.04, 0.12, peak);
+    return float4(0.0, 0.0, 0.0, maskAlpha * locator);
 }
 
 fragment float4 vpk_attachment_fragment(

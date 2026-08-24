@@ -20,8 +20,10 @@ private struct FrameUniforms {
 private struct AttachmentUniforms {
     var renderRect: SIMD4<Float>
     var maskRect: SIMD4<Float>
+    var rgbRect: SIMD4<Float>
     var rotation: UInt32
-    var padding = SIMD3<UInt32>(repeating: 0)
+    var colorMatrix: UInt32
+    var padding = SIMD2<UInt32>(repeating: 0)
 }
 
 /// Resources whose lifetime must extend through GPU completion. The shared
@@ -288,7 +290,9 @@ final class MetalRenderer: @unchecked Sendable {
             var attachmentUniforms = AttachmentUniforms(
                 renderRect: normalized(attachment.renderRect, within: vapc.canvasSize),
                 maskRect: normalized(attachment.maskRect, within: vapc.encodedVideoSize),
-                rotation: UInt32(max(0, attachment.maskRotation))
+                rgbRect: uniforms.rgbRect,
+                rotation: UInt32(max(0, attachment.maskRotation)),
+                colorMatrix: uniforms.colorMatrix
             )
             encoder.setVertexBytes(
                 &attachmentUniforms,
@@ -301,11 +305,11 @@ final class MetalRenderer: @unchecked Sendable {
                 index: 0
             )
             encoder.setFragmentTexture(yTexture, index: 0)
+            encoder.setFragmentTexture(uvTexture, index: 1)
             encoder.setFragmentTexture(texture, index: 2)
-            // Image fusion slots are often an opaque black placeholder. Punch only
-            // those masks so transparent replacement pixels do not reveal it.
-            // Text must overlay the original banner; punching would cut a hole
-            // around the glyphs.
+            // Image slots flatten colorful animation (A) with a near-black locator
+            // (B). Knock out only B, then overlay C so A shows through transparent
+            // gift pixels. Text overlays the banner without punching.
             if attachment.kind == .image {
                 encoder.setRenderPipelineState(attachmentPunchPipeline)
                 encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
