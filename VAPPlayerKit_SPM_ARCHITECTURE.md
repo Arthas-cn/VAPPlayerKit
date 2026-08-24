@@ -421,7 +421,9 @@ public enum DynamicContent {
 }
 ~~~
 
-`textReplacement` 服务于宿主只提供 tag/value 的常见场景：使用 vapc source 的颜色、粗体标记和 slot 约束，自动选择可放入槽位的系统字号。vapc 不包含字体文件或精确 point size，因此不能承诺恢复原字体族或精确字号；有严格排版要求时继续使用 `text(_:attributes:)`。
+`textReplacement` 服务于宿主只提供 tag/value 的常见场景：使用 vapc source 的颜色、粗体标记和 slot 约束，自动选择可放入槽位的系统字号。vapc 不包含字体文件或精确 point size，因此不能承诺恢复原字体族或精确字号；有严格排版要求时可使用 `text(_:attributes:)`，或由 provider 按 tag 返回字体。
+
+宿主可在 `DynamicContentProvider.font(forTag:)` 中按 tag 提供字体。提供字体时组件保持该字体；未提供时自动字号最多缩小三次，仍无法放入槽位则使用 UIKit 的 `byTruncatingTail` 模式截断。
 
 该 case 扩展了 public enum，对 exhaustive switch 是源码破坏性变更；从已发布版本升级时必须按 SemVer major 交付并提供迁移说明，调用方需要处理 `.textReplacement` 或使用 `@unknown default`。
 
@@ -436,6 +438,8 @@ public protocol DynamicContentProvider: AnyObject {
         source: SourceMetadata,
         completion: @escaping (DynamicContent?, Error?) -> Void
     )
+
+    func font(forTag tag: String) -> UIFont?
 }
 ~~~
 

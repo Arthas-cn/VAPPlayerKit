@@ -22,7 +22,7 @@ public enum DynamicContent: @unchecked Sendable {
     /// 只替换字符串。组件使用 vapc source 声明的颜色和字重，并按槽位自动适配字号。
     ///
     /// vapc 不携带字体文件或精确 point size，因此这里保持的是动效声明的样式与布局约束；
-    /// 需要指定字体族或固定字号时请继续使用 `text(_:attributes:)`。
+    /// 需要按 tag 指定字体时可在 provider 的 `font(forTag:)` 中返回字体。
     case textReplacement(String)
     /// 已经解码的图片，组件会按 slot 预缩放。
     case image(UIImage)
@@ -61,6 +61,13 @@ public protocol DynamicContentProvider: AnyObject {
         source: SourceMetadata,
         completion: @escaping (DynamicContent?, Error?) -> Void
     )
+
+    /// 可选的 tag 字体覆盖。返回 `nil` 时，`.textReplacement` 使用组件的自动字号估算。
+    func font(forTag tag: String) -> UIFont?
+}
+
+public extension DynamicContentProvider {
+    func font(forTag tag: String) -> UIFont? { nil }
 }
 
 /// Objective-C 简化版动态内容协议，以 `UIImage` 表达已经加载好的结果。
@@ -72,4 +79,7 @@ public protocol ObjCDynamicContentProvider: NSObjectProtocol {
         source: SourceMetadata,
         completion: @escaping (UIImage?, NSError?) -> Void
     )
+
+    /// 可选的 tag 字体覆盖；未实现或返回 nil 时使用自动字号估算。
+    @objc optional func fontForTag(_ tag: String) -> UIFont?
 }

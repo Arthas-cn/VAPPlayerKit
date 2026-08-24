@@ -137,18 +137,42 @@ final class DynamicResolver {
         case .text(let text, let attributes):
             return .image(Self.rasterizedText(text, attributes: attributes, source: source))
         case .textReplacement(let text):
-            return .image(Self.rasterizedReplacementText(text, source: source))
+            return .image(Self.rasterizedReplacementText(text, source: source, font: self.font(for: source)))
         }
     }
 
-    private static func rasterizedReplacementText(_ text: String, source: VapcSource) -> UIImage {
-        rasterizedText(text, attributes: replacementTextAttributes(text, source: source), source: source)
+    private func font(for source: VapcSource) -> UIFont? {
+        if let provider {
+            return provider.font(forTag: source.tag)
+        }
+        return objcProvider?.fontForTag?(source.tag)
+    }
+
+    private static func rasterizedReplacementText(
+        _ text: String,
+        source: VapcSource,
+        font: UIFont?
+    ) -> UIImage {
+        let attributes = replacementTextAttributes(text, source: source, font: font)
+        return rasterizedText(
+            text,
+            attributes: attributes,
+            source: source,
+            lineBreakMode: .byTruncatingTail
+        )
     }
 
     /// Internal seam used by tests to verify that the string-only path really
     /// consumes the source style instead of merely producing a correctly sized image.
-    static func replacementTextAttributes(_ text: String, source: VapcSource) -> TextAttributes {
+    static func replacementTextAttributes(
+        _ text: String,
+        source: VapcSource,
+        font: UIFont? = nil
+    ) -> TextAttributes {
         let color = textColor(source.color) ?? .white
+        if let font {
+            return TextAttributes(font: font, color: color)
+        }
         let isBold = source.style?.localizedCaseInsensitiveContains("b") == true
         let fontSize = fittedFontSize(text: text, source: source, bold: isBold)
         let font = isBold
@@ -158,23 +182,21 @@ final class DynamicResolver {
     }
 
     /// VAP source metadata has slot dimensions, color and a coarse style flag,
-    /// but no font file or exact point size. Binary-search the largest system
-    /// font that keeps the replacement inside the original slot.
+    /// but no font file or exact point size. Shrink the system font at most
+    /// three times; a still-too-wide string is handled by UIKit tail truncation.
     private static func fittedFontSize(text: String, source: VapcSource, bold: Bool) -> CGFloat {
         guard !text.isEmpty else { return 1 }
-        var lower: CGFloat = 1
-        var upper = min(max(source.slotSize.height, 1), 512)
-        for _ in 0..<10 {
-            let candidate = (lower + upper) / 2
+        var candidate = min(max(source.slotSize.height, 1), 50)
+        for attempt in 0...3 {
             let font = bold ? UIFont.boldSystemFont(ofSize: candidate) : UIFont.systemFont(ofSize: candidate)
             let size = (text as NSString).size(withAttributes: [.font: font])
             if size.width <= source.slotSize.width, size.height <= source.slotSize.height {
-                lower = candidate
-            } else {
-                upper = candidate
+                return candidate
             }
+            guard attempt < 3 else { break }
+            candidate *= 0.80
         }
-        return max(1, lower)
+        return max(1, candidate)
     }
 
     private static func textColor(_ value: String?) -> UIColor? {
@@ -204,7 +226,8 @@ final class DynamicResolver {
     private static func rasterizedText(
         _ text: String,
         attributes textAttributes: TextAttributes,
-        source: VapcSource
+        source: VapcSource,
+        lineBreakMode: NSLineBreakMode = .byWordWrapping
     ) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.opaque = false
@@ -212,12 +235,27 @@ final class DynamicResolver {
         return UIGraphicsImageRenderer(size: source.slotSize, format: format).image { _ in
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = .center
+            paragraph.lineBreakMode = lineBreakMode
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: textAttributes.font,
                 .foregroundColor: textAttributes.color,
                 .paragraphStyle: paragraph
             ]
             let attributed = NSAttributedString(string: text, attributes: attributes)
+            if lineBreakMode == .byTruncatingTail {
+                let lineHeight = textAttributes.font.lineHeight
+                attributed.draw(
+                    with: CGRect(
+                        x: 0,
+                        y: max(0, (source.slotSize.height - lineHeight) / 2),
+                        width: source.slotSize.width,
+                        height: lineHeight
+                    ),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    context: nil
+                )
+                return
+            }
             // `draw(at:)` is a single-line operation, so measure the same
             // layout. A slot-constrained boundingRect would allow wrapping and
             // could accept a font whose actual single-line glyphs are clipped.

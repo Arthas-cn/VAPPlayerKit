@@ -56,7 +56,9 @@ func resolve(
 }
 ```
 
-`.textReplacement` 会使用 vapc source 声明的颜色、粗体标记和槽位尺寸，并自动计算能放入槽位的系统字号。vapc 本身不包含字体文件或精确 point size，因此无法还原原字体族和精确字号；需要完全指定字体时使用 `.text(_:attributes:)`。未设置 provider，或 provider 对某个 tag 返回 `nil` / `.hidden` 时，该动态槽位按透明空内容处理，视频仍会正常准备和播放。
+`.textReplacement` 会使用 vapc source 声明的颜色、粗体标记和槽位尺寸，并自动计算能放入槽位的系统字号。vapc 本身不包含字体文件或精确 point size，因此无法还原原字体族和精确字号；需要完全指定字体时可使用 `.text(_:attributes:)`，或由 provider 按 tag 返回字体。未设置 provider，或 provider 对某个 tag 返回 `nil` / `.hidden` 时，该动态槽位按透明空内容处理，视频仍会正常准备和播放。
+
+如果宿主需要按 tag 指定字体，可在 `DynamicContentProvider` 中实现 `font(forTag:)` 并返回 `UIFont`；返回 `nil` 时继续使用自动字号估算。自动估算最多缩小三次，仍放不下时由 UIKit 的 `byTruncatingTail` 模式截断。
 
 兼容性说明：`.textReplacement` 是 public enum 的新 case，已有调用方若对 `DynamicContent` 使用 exhaustive `switch`，升级后必须补充该分支（或使用 `@unknown default`）。这是源码破坏性变更，已有正式版本应按 SemVer major 发布，并在迁移说明中列出该 switch 修改。
 
@@ -77,6 +79,8 @@ Objective-C 也可以将同一 URL 的 `VPKAssetMetadata` 传给
 
 `VPKPlayerViewDelegate` 提供开始、metadata、完成和失败回调；动态图片可通过
 `VPKDynamicContentProvider` 注入。
+
+Objective-C provider 也可实现可选的 `fontForTag:`，为文字 tag 指定 `UIFont`；未实现或返回 `nil` 时使用同样的自动估算和 UIKit 尾部截断策略。
 
 ## 支持范围
 

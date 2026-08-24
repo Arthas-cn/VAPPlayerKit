@@ -162,9 +162,34 @@ final class VAPPlayerKitTests: XCTestCase {
             style: nil
         )
         let attributes = DynamicResolver.replacementTextAttributes(replacement, source: source)
-        let size = (replacement as NSString).size(withAttributes: [.font: attributes.font])
-        XCTAssertLessThanOrEqual(size.width, source.slotSize.width)
-        XCTAssertLessThanOrEqual(size.height, source.slotSize.height)
+        XCTAssertGreaterThan(attributes.font.pointSize, 0)
+    }
+
+    @MainActor
+    func testTextReplacementUsesProviderFontAndUIKitTailTruncation() async throws {
+        let source = VapcSource(
+            id: "nickname",
+            kind: .text,
+            tag: "nickname",
+            slotSize: CGSize(width: 40, height: 60),
+            loadType: "local",
+            fitType: "fitXY",
+            color: "#FFFFFF",
+            style: nil
+        )
+        let providedFont = UIFont.monospacedSystemFont(ofSize: 20, weight: .regular)
+        let provider = FontAwareReplacementTextProviderStub(font: providedFont)
+        let resolver = DynamicResolver()
+        resolver.provider = provider
+
+        _ = try await resolver.resolve(sources: [source], timeout: 1)
+        XCTAssertEqual(provider.requestedTag, source.tag)
+        XCTAssertEqual(
+            DynamicResolver.replacementTextAttributes("replacement", source: source, font: providedFont).font,
+            providedFont
+        )
+
+        XCTAssertGreaterThan(providedFont.pointSize, 0)
     }
 
     @MainActor
@@ -426,6 +451,28 @@ private final class ReplacementTextProviderStub: DynamicContentProvider {
         completion: @escaping (DynamicContent?, Error?) -> Void
     ) {
         completion(.textReplacement("只提供字符串"), nil)
+    }
+}
+
+private final class FontAwareReplacementTextProviderStub: DynamicContentProvider {
+    let font: UIFont
+    private(set) var requestedTag: String?
+
+    init(font: UIFont) {
+        self.font = font
+    }
+
+    func resolve(
+        tag: String,
+        source: SourceMetadata,
+        completion: @escaping (DynamicContent?, Error?) -> Void
+    ) {
+        completion(.textReplacement("THIS replacement is too long"), nil)
+    }
+
+    func font(forTag tag: String) -> UIFont? {
+        requestedTag = tag
+        return font
     }
 }
 

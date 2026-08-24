@@ -9,6 +9,10 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)resolveTag:(NSString *)tag
             source:(VPKSourceMetadata *)source
         completion:(void (^)(UIImage * _Nullable image, NSError * _Nullable error))completion;
+
+/// 可选的文字字体覆盖；未实现或返回 nil 时由组件自动估算字号。
+@optional
+- (nullable UIFont *)fontForTag:(NSString *)tag;
 @end
 
 /// vapc 动态槽位描述。`slotSize` 是预缩放目标像素尺寸。
