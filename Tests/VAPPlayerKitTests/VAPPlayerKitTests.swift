@@ -63,9 +63,68 @@ final class VAPPlayerKitTests: XCTestCase {
 
     func testCommittedVAPFixturesExist() {
         XCTAssertTrue(FileManager.default.fileExists(atPath: VAPFixture.defaultPlayableURL.path))
-        XCTAssertGreaterThanOrEqual(VAPFixture.allMP4URLs.count, 19)
+        XCTAssertEqual(VAPFixture.allMP4URLs.count, 21)
+        XCTAssertEqual(VAPFixture.playableURLs.count, 19)
+        XCTAssertEqual(
+            VAPFixture.allMP4URLs.map(\.lastPathComponent),
+            (1...21).map { "\($0).mp4" }
+        )
         for name in VAPFixture.invalidXMLNames {
             XCTAssertTrue(FileManager.default.fileExists(atPath: VAPFixture.url(name).path))
+        }
+    }
+
+    @MainActor
+    func testDynamicTextAndImageSourcesResolveWithoutBlocking() async throws {
+        let provider = DynamicProviderStub()
+        let resolver = DynamicResolver()
+        resolver.provider = provider
+        let sources = [
+            VapcSource(
+                id: "avatar",
+                kind: .image,
+                tag: "avatar",
+                slotSize: CGSize(width: 64, height: 64),
+                loadType: "net",
+                fitType: "fitXY",
+                color: nil,
+                style: nil
+            ),
+            VapcSource(
+                id: "nickname",
+                kind: .text,
+                tag: "nickname",
+                slotSize: CGSize(width: 197, height: 52),
+                loadType: "local",
+                fitType: "fitXY",
+                color: "#ffffff",
+                style: "b"
+            )
+        ]
+
+        let snapshot = try await resolver.resolve(sources: sources, timeout: 1)
+        XCTAssertEqual(snapshot.contents.count, 2)
+        guard case .image(let textImage) = snapshot.contents["nickname"] else {
+            return XCTFail("Text source was not materialized as an image")
+        }
+        XCTAssertEqual(textImage.size, CGSize(width: 197, height: 52))
+    }
+}
+
+private final class DynamicProviderStub: DynamicContentProvider {
+    func resolve(
+        tag: String,
+        source: SourceMetadata,
+        completion: @escaping (DynamicContent?, Error?) -> Void
+    ) {
+        if tag == "nickname" {
+            completion(.text("VAP Swift", attributes: TextAttributes()), nil)
+        } else {
+            let image = UIGraphicsImageRenderer(size: source.slotSize).image { context in
+                UIColor.blue.setFill()
+                context.cgContext.fill(CGRect(origin: .zero, size: source.slotSize))
+            }
+            completion(.image(image), nil)
         }
     }
 }

@@ -19,12 +19,22 @@ final class DynamicResolver {
     weak var objcProvider: ObjCDynamicContentProvider?
     private var generation: UInt64 = 0
     private var activeGates: [UUID: DynamicResolutionGate] = [:]
-    private let processingQueue = DispatchQueue(label: "com.vapplayerkit.dynamic-processing", qos: .userInitiated)
 
     func resolve(sources: [VapcSource], timeout: TimeInterval = 8) async throws -> DynamicSnapshot {
         generation &+= 1
         let currentGeneration = generation
         guard !sources.isEmpty else { return .empty }
+        var totalBytes = 0
+        for source in sources {
+            guard
+                let bytes = DynamicTextureLimits.byteCount(for: source.slotSize),
+                bytes <= DynamicTextureLimits.maximumBytesPerTexture,
+                totalBytes <= DynamicTextureLimits.maximumBytesPerSession - bytes
+            else {
+                throw PlaybackError.invalidVapc(reason: "Dynamic source textures exceed the allocation budget.")
+            }
+            totalBytes += bytes
+        }
         guard provider != nil || objcProvider != nil else {
             return DynamicSnapshot(contents: Dictionary(uniqueKeysWithValues: sources.map { ($0.id, .hidden) }))
         }
@@ -117,51 +127,48 @@ final class DynamicResolver {
     }
 
     private func materialize(_ content: DynamicContent, source: VapcSource) async -> ResolvedDynamicContent {
-        await withCheckedContinuation { continuation in
-            processingQueue.async {
-                continuation.resume(returning: Self.materializeOffMain(content, source: source))
-            }
-        }
-    }
-
-    nonisolated private static func materializeOffMain(
-        _ content: DynamicContent,
-        source: VapcSource
-    ) -> ResolvedDynamicContent {
+        // All branches use UIKit drawing. Serializing them on this @MainActor avoids a
+        // physical-device deadlock between concurrent image and TextKit renderers.
         switch content {
         case .hidden, .imageURL:
             return .hidden
         case .image(let image):
-            return .image(resized(image, source: source))
+            return .image(Self.resized(image, source: source))
         case .text(let text, let attributes):
-            let format = UIGraphicsImageRendererFormat()
-            format.opaque = false
-            format.scale = 1
-            let renderer = UIGraphicsImageRenderer(size: source.slotSize, format: format)
-            let image = renderer.image { _ in
-                let paragraph = NSMutableParagraphStyle()
-                paragraph.alignment = .center
-                let attributes: [NSAttributedString.Key: Any] = [
-                    .font: attributes.font,
-                    .foregroundColor: attributes.color,
-                    .paragraphStyle: paragraph
-                ]
-                let attributed = NSAttributedString(string: text, attributes: attributes)
-                let bounds = attributed.boundingRect(
-                    with: source.slotSize,
-                    options: [.usesLineFragmentOrigin, .usesFontLeading],
-                    context: nil
-                )
-                attributed.draw(at: CGPoint(
-                    x: max(0, (source.slotSize.width - bounds.width) / 2),
-                    y: max(0, (source.slotSize.height - bounds.height) / 2)
-                ))
-            }
-            return .image(image)
+            return .image(Self.rasterizedText(text, attributes: attributes, source: source))
         }
     }
 
-    nonisolated private static func resized(_ image: UIImage, source: VapcSource) -> UIImage {
+    private static func rasterizedText(
+        _ text: String,
+        attributes textAttributes: TextAttributes,
+        source: VapcSource
+    ) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = false
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: source.slotSize, format: format).image { _ in
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: textAttributes.font,
+                .foregroundColor: textAttributes.color,
+                .paragraphStyle: paragraph
+            ]
+            let attributed = NSAttributedString(string: text, attributes: attributes)
+            let bounds = attributed.boundingRect(
+                with: source.slotSize,
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                context: nil
+            )
+            attributed.draw(at: CGPoint(
+                x: max(0, (source.slotSize.width - bounds.width) / 2),
+                y: max(0, (source.slotSize.height - bounds.height) / 2)
+            ))
+        }
+    }
+
+    private static func resized(_ image: UIImage, source: VapcSource) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.opaque = false
         format.scale = 1

@@ -46,7 +46,7 @@
 
 - (void)playFixture {
     // 与 Tests/Fixtures/README.md 中的默认 Demo 文件一致。
-    NSString *name = @"e9b6b7196780ea5f64b9f05034571f12a96787278ed678c83141c7913af7318a";
+    NSString *name = @"18";
     NSURL *url = [[NSBundle mainBundle] URLForResource:name withExtension:@"mp4" subdirectory:@"VAP"];
     if (url == nil) {
         self.statusLabel.text = @"Missing Tests/Fixtures/VAP in app bundle";

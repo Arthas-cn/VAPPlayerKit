@@ -90,6 +90,7 @@ final class VapcReader {
             throw invalid("Too many dynamic sources.")
         }
         var sourceIDs = Set<String>()
+        var dynamicTextureBytes = 0
         let sources = try sourceObjects.map { source -> VapcSource in
             guard
                 let id = nonEmptyString(source["srcId"]),
@@ -102,11 +103,20 @@ final class VapcReader {
             guard sourceIDs.insert(id).inserted else {
                 throw invalid("Duplicate source id \(id).")
             }
+            let slotSize = try size(source, width: "w", height: "h")
+            guard
+                let textureBytes = DynamicTextureLimits.byteCount(for: slotSize),
+                textureBytes <= DynamicTextureLimits.maximumBytesPerTexture,
+                dynamicTextureBytes <= DynamicTextureLimits.maximumBytesPerSession - textureBytes
+            else {
+                throw invalid("Dynamic source textures exceed the allocation budget.")
+            }
+            dynamicTextureBytes += textureBytes
             return VapcSource(
                 id: id,
                 kind: kind,
                 tag: tag,
-                slotSize: try size(source, width: "w", height: "h"),
+                slotSize: slotSize,
                 loadType: nonEmptyString(source["loadType"]) ?? "local",
                 fitType: nonEmptyString(source["fitType"]) ?? "fitXY",
                 color: nonEmptyString(source["color"]),

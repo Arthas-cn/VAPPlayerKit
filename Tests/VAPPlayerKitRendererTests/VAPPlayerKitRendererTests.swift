@@ -47,6 +47,22 @@ final class VAPPlayerKitRendererTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testMetalRendererUploadsTextTexture() async throws {
+        guard MTLCreateSystemDefaultDevice() != nil else { return }
+        let renderer = MetalRenderer()
+        let layer = CAMetalLayer()
+        try await renderer.prepare(layer: layer)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 197, height: 52)).image { _ in
+            NSAttributedString(
+                string: "VAP Swift",
+                attributes: [.font: UIFont.boldSystemFont(ofSize: 24), .foregroundColor: UIColor.white]
+            ).draw(at: .zero)
+        }
+        try await renderer.prepareDynamic(DynamicSnapshot(contents: ["nickname": .image(image)]))
+        renderer.dispose()
+    }
+
     func testAspectFitViewportUsesCanvasSize() {
         let viewport = MetalRenderer.viewport(
             drawableSize: CGSize(width: 300, height: 200),

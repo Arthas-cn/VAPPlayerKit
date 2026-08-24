@@ -67,7 +67,7 @@ final class ViewController: UIViewController {
 
     @objc private func reloadFixtures() {
         fixtures = FixtureCatalog.scan()
-        tableView.accessibilityValue = "\(fixtures.count)"
+        tableView.accessibilityValue = fixtures.map(\.identifier).joined(separator: ",")
         applyFilter(searchController.searchBar.text)
     }
 

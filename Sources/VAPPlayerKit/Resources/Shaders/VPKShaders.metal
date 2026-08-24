@@ -123,6 +123,6 @@ fragment float4 vpk_attachment_fragment(
     constexpr sampler linearSampler(address::clamp_to_edge, filter::linear);
     float4 source = sourceTexture.sample(linearSampler, in.sourceCoordinate);
     float maskY = yTexture.sample(linearSampler, in.maskCoordinate).r;
-    float alpha = source.a * saturate((maskY - (16.0 / 255.0)) * (255.0 / 219.0));
-    return float4(source.rgb * alpha, alpha);
+    float maskAlpha = saturate((maskY - (16.0 / 255.0)) * (255.0 / 219.0));
+    return float4(source.rgb * maskAlpha, source.a * maskAlpha);
 }

@@ -13,8 +13,10 @@ final class SwiftExampleUITests: XCTestCase {
     func testCatalogCountMatchesRowsAndPlaybackLifecycle() throws {
         let list = app.tables["catalog.list"]
         XCTAssertTrue(list.waitForExistence(timeout: 10))
-        let scannedCount = try XCTUnwrap(Int(list.value as? String ?? ""))
-        XCTAssertGreaterThanOrEqual(scannedCount, 19)
+        let manifest = try XCTUnwrap(list.value as? String)
+        let identifiers = manifest.split(separator: ",").map(String.init)
+        XCTAssertEqual(identifiers, (1...21).map { String($0) })
+        let scannedCount = identifiers.count
         XCTAssertEqual(list.cells.count, scannedCount)
 
         let first = list.cells.element(boundBy: 0)
@@ -23,7 +25,10 @@ final class SwiftExampleUITests: XCTestCase {
 
         XCTAssertTrue(app.otherElements["detail.player"].waitForExistence(timeout: 5))
         tapControl("detail.prepare")
-        XCTAssertTrue(waitForState(["READY"], timeout: 12))
+        XCTAssertTrue(
+            waitForState(["READY"], timeout: 12),
+            "Prepare did not finish. \(detailDiagnostics())"
+        )
 
         tapControl("detail.play")
         XCTAssertTrue(waitForState(["PLAYING"], timeout: 12))
@@ -54,7 +59,7 @@ final class SwiftExampleUITests: XCTestCase {
         tapControl("detail.autoTest")
         XCTAssertTrue(
             waitForState(["TEST PASSED"], timeout: 30),
-            "Automated Fit/Fill/Stretch and pause/resume/stop matrix did not finish."
+            "Automated Fit/Fill/Stretch and pause/resume/stop matrix did not finish. \(detailDiagnostics())"
         )
         let console = try XCTUnwrap(app.textViews["detail.console"].value as? String)
         XCTAssertFalse(console.isEmpty)
@@ -93,5 +98,11 @@ final class SwiftExampleUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return accepted.contains(state.label)
+    }
+
+    private func detailDiagnostics() -> String {
+        let state = app.staticTexts["detail.state"].label
+        let console = (app.textViews["detail.console"].value as? String) ?? "<no console>"
+        return "state=\(state), console=\(console)"
     }
 }

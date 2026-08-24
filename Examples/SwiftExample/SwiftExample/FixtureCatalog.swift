@@ -1,10 +1,7 @@
 import Foundation
 
 struct VAPFixture: Hashable {
-    private static let expectedNegativeNames: Set<String> = [
-        "0f691eda3e82a2808e38f34be2e80efde45d4b66084a7e3e80cbd7a9a209c23d.mp4",
-        "38c168451bbfe1b792e84067260011202452d7b04ac762a0c2c0d1e0acd2377f.mp4"
-    ]
+    private static let expectedNegativeNames: Set<String> = ["2.mp4", "9.mp4"]
 
     let url: URL
     let byteCount: Int64
@@ -18,6 +15,7 @@ struct VAPFixture: Hashable {
     }
     var formattedSize: String { ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file) }
     var looksLikeMedia: Bool { !Self.expectedNegativeNames.contains(fileName) }
+    var numericID: Int { Int(identifier) ?? .max }
 }
 
 enum FixtureCatalog {
@@ -44,8 +42,7 @@ enum FixtureCatalog {
             guard values?.isRegularFile != false else { return nil }
             return VAPFixture(url: url, byteCount: Int64(values?.fileSize ?? 0))
         }.sorted {
-            if $0.looksLikeMedia != $1.looksLikeMedia { return $0.looksLikeMedia && !$1.looksLikeMedia }
-            if $0.byteCount != $1.byteCount { return $0.byteCount < $1.byteCount }
+            if $0.numericID != $1.numericID { return $0.numericID < $1.numericID }
             return $0.fileName.localizedStandardCompare($1.fileName) == .orderedAscending
         }
     }

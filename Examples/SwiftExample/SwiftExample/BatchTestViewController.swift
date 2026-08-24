@@ -2,7 +2,7 @@ import UIKit
 import VAPPlayerKit
 
 /// 在真机上逐个验证所有 Bundle fixture：合法素材 prepare + 实际播放，非法素材必须明确失败。
-final class BatchTestViewController: UIViewController, PlayerDelegate {
+final class BatchTestViewController: UIViewController, PlayerDelegate, DynamicContentProvider {
     private let fixtures: [VAPFixture]
     private let playerView = PlayerView()
     private let stateLabel = UILabel()
@@ -31,6 +31,7 @@ final class BatchTestViewController: UIViewController, PlayerDelegate {
         title = "Device Batch Test"
         view.backgroundColor = UIColor(red: 0.03, green: 0.04, blue: 0.065, alpha: 1)
         playerView.delegate = self
+        playerView.dynamicContentProvider = self
         playerView.metricsSink = renderProbe
         configureUI()
     }
@@ -176,6 +177,22 @@ final class BatchTestViewController: UIViewController, PlayerDelegate {
     func player(_ player: PlayerView, didUpdate metadata: AssetMetadata) {}
     func playerDidFinish(_ player: PlayerView, reason: FinishReason) { currentFinishReason = reason }
     func player(_ player: PlayerView, didFail error: Error) { currentFailure = error }
+
+    func resolve(
+        tag: String,
+        source: SourceMetadata,
+        completion: @escaping (DynamicContent?, Error?) -> Void
+    ) {
+        if tag.localizedCaseInsensitiveContains("text") || tag.localizedCaseInsensitiveContains("name") {
+            completion(.text("VAP Swift", attributes: TextAttributes(font: .boldSystemFont(ofSize: 24))), nil)
+            return
+        }
+        let image = UIGraphicsImageRenderer(size: source.slotSize).image { context in
+            UIColor.systemBlue.setFill()
+            context.cgContext.fill(CGRect(origin: .zero, size: source.slotSize))
+        }
+        completion(.image(image), nil)
+    }
 }
 
 private enum BatchTestError: LocalizedError {

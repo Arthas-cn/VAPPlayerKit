@@ -86,6 +86,31 @@ final class VAPPlayerKitParserTests: XCTestCase {
         XCTAssertThrowsError(try VapcReader().read(from: JSONSerialization.data(withJSONObject: root)))
     }
 
+    func testVapcReaderRejectsDynamicTextureBudgetsBeforeRasterization() throws {
+        let commonInfo: [String: Any] = [
+            "v": 2, "f": 1, "w": 100, "h": 100, "fps": 30,
+            "videoW": 200, "videoH": 100,
+            "aFrame": [0, 0, 100, 100], "rgbFrame": [100, 0, 100, 100]
+        ]
+        let oversized: [String: Any] = [
+            "info": commonInfo,
+            "src": [[
+                "srcId": "huge", "srcType": "img", "srcTag": "huge",
+                "w": 5_000, "h": 5_000
+            ]]
+        ]
+        XCTAssertThrowsError(try VapcReader().read(from: JSONSerialization.data(withJSONObject: oversized)))
+
+        let aggregateSources: [[String: Any]] = (0..<9).map { index in
+            [
+                "srcId": "\(index)", "srcType": "img", "srcTag": "image\(index)",
+                "w": 2_048, "h": 2_048
+            ]
+        }
+        let aggregate: [String: Any] = ["info": commonInfo, "src": aggregateSources]
+        XCTAssertThrowsError(try VapcReader().read(from: JSONSerialization.data(withJSONObject: aggregate)))
+    }
+
     func testInspectorParsesLegacyFixture() async throws {
         let metadata = try await AssetInspector().inspect(url: VAPFixture.url(VAPFixture.defaultPlayableName))
         XCTAssertEqual(metadata.encodedVideoSize, CGSize(width: 560, height: 280))
@@ -97,7 +122,7 @@ final class VAPPlayerKitParserTests: XCTestCase {
     }
 
     func testInspectorParsesVapcFixture() async throws {
-        let url = VAPFixture.url("30f726180edb3f9678571999dd51dff00b3a6cf02cc1fd431beabef47f33bfb1.mp4")
+        let url = VAPFixture.url("8.mp4")
         let metadata = try await AssetInspector().inspect(url: url)
         XCTAssertEqual(metadata.encodedVideoSize, CGSize(width: 1136, height: 1344))
         XCTAssertEqual(metadata.canvasSize, CGSize(width: 750, height: 1334))
@@ -108,22 +133,49 @@ final class VAPPlayerKitParserTests: XCTestCase {
     }
 
     func testAllCommittedMediaFixturesInspectWithoutCrash() async throws {
-        let invalid = Set(VAPFixture.invalidXMLNames)
-        for url in VAPFixture.allMP4URLs where !invalid.contains(url.lastPathComponent) {
+        XCTAssertEqual(VAPFixture.playableURLs.count, 19)
+        for url in VAPFixture.playableURLs {
             let metadata = try await AssetInspector().inspect(url: url)
             XCTAssertGreaterThan(metadata.frameCount, 0, url.lastPathComponent)
             XCTAssertGreaterThan(metadata.duration, 0, url.lastPathComponent)
         }
     }
 
+
+    func testEveryCommittedMediaFixtureDecodesFrames() async throws {
+        for url in VAPFixture.playableURLs {
+            let source = AVAssetReaderFrameSource(url: url)
+            _ = try await source.prepare()
+            let buffer = FrameRingBuffer(capacity: 8)
+            let decodedFrames = FrameCountRecorder()
+            let finished = expectation(description: "decoder finished: \(url.lastPathComponent)")
+            var result: Result<Void, PlaybackError>?
+            source.startProducing(to: buffer, token: .make(), didProduce: { _ in
+                _ = buffer.dequeue()
+                decodedFrames.increment()
+            }) {
+                result = $0
+                finished.fulfill()
+            }
+            await fulfillment(of: [finished], timeout: 10)
+            if case .failure(let error) = result {
+                XCTFail("\(url.lastPathComponent) failed to decode: \(error)")
+            }
+            XCTAssertGreaterThan(decodedFrames.value, 0, url.lastPathComponent)
+            source.cancel()
+        }
+    }
+
     func testInspectorRejectsInvalidXMLFixture() async {
-        do {
-            _ = try await AssetInspector().inspect(url: VAPFixture.url(VAPFixture.invalidXMLNames[0]))
-            XCTFail("Expected invalidMP4")
-        } catch let error as PlaybackError {
-            XCTAssertEqual(error.code, .invalidMP4)
-        } catch {
-            XCTFail("Unexpected error: \(error)")
+        for name in VAPFixture.invalidXMLNames {
+            do {
+                _ = try await AssetInspector().inspect(url: VAPFixture.url(name))
+                XCTFail("Expected invalidMP4 for \(name)")
+            } catch let error as PlaybackError {
+                XCTAssertEqual(error.code, .invalidMP4, name)
+            } catch {
+                XCTFail("Unexpected error for \(name): \(error)")
+            }
         }
     }
 
@@ -149,10 +201,28 @@ final class VAPPlayerKitParserTests: XCTestCase {
     }
 
     func testInvalidXMLFixtureIsNotAValidMP4Header() throws {
-        let url = VAPFixture.url(VAPFixture.invalidXMLNames[0])
-        let data = try Data(contentsOf: url)
-        XCTAssertFalse(data.starts(with: Data("ftyp".utf8)))
-        let prefix = String(data: data.prefix(32), encoding: .utf8) ?? ""
-        XCTAssertTrue(prefix.contains("xml") || prefix.contains("Error"))
+        for name in VAPFixture.invalidXMLNames {
+            let data = try Data(contentsOf: VAPFixture.url(name))
+            XCTAssertFalse(data.starts(with: Data("ftyp".utf8)), name)
+            let prefix = String(data: data.prefix(32), encoding: .utf8) ?? ""
+            XCTAssertTrue(prefix.contains("xml") || prefix.contains("Error"), name)
+        }
+    }
+}
+
+private final class FrameCountRecorder {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
     }
 }

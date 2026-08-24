@@ -1,7 +1,6 @@
 import Foundation
 import UIKit
 import Metal
-import MetalKit
 import CoreVideo
 import QuartzCore
 import simd
@@ -141,18 +140,19 @@ final class MetalRenderer: @unchecked Sendable {
                     return
                 }
                 do {
-                    let loader = MTKTextureLoader(device: device)
                     var textures: [String: MTLTexture] = [:]
+                    var totalBytes = 0
                     for (id, content) in snapshot.contents {
                         guard case .image(let image) = content, let cgImage = image.cgImage else { continue }
-                        textures[id] = try loader.newTexture(
-                            cgImage: cgImage,
-                            options: [
-                                .origin: MTKTextureLoader.Origin.topLeft,
-                                .SRGB: false,
-                                .textureUsage: NSNumber(value: MTLTextureUsage.shaderRead.rawValue)
-                            ]
-                        )
+                        guard
+                            let bytes = DynamicTextureLimits.byteCount(width: cgImage.width, height: cgImage.height),
+                            bytes <= DynamicTextureLimits.maximumBytesPerTexture,
+                            totalBytes <= DynamicTextureLimits.maximumBytesPerSession - bytes
+                        else {
+                            throw PlaybackError.metalUnavailable
+                        }
+                        totalBytes += bytes
+                        textures[id] = try self.makeDynamicTexture(cgImage: cgImage, device: device)
                     }
                     self.dynamicTextures = textures
                     continuation.resume(returning: ())
@@ -161,6 +161,52 @@ final class MetalRenderer: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    /// Normalize UIKit / TextKit output to a predictable top-left RGBA8 surface before upload.
+    /// MTKTextureLoader rejects some device-only extended-color CGImage formats.
+    private func makeDynamicTexture(cgImage: CGImage, device: MTLDevice) throws -> MTLTexture {
+        let width = cgImage.width
+        let height = cgImage.height
+        guard
+            let byteCount = DynamicTextureLimits.byteCount(width: width, height: height),
+            byteCount <= DynamicTextureLimits.maximumBytesPerTexture
+        else {
+            throw PlaybackError.metalUnavailable
+        }
+        let bitmapInfo = CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: bitmapInfo
+        ), let bytes = context.data else {
+            throw PlaybackError.metalUnavailable
+        }
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba8Unorm,
+            width: width,
+            height: height,
+            mipmapped: false
+        )
+        descriptor.usage = .shaderRead
+        guard let texture = device.makeTexture(descriptor: descriptor) else {
+            throw PlaybackError.metalUnavailable
+        }
+        texture.replace(
+            region: MTLRegionMake2D(0, 0, width, height),
+            mipmapLevel: 0,
+            withBytes: bytes,
+            bytesPerRow: width * 4
+        )
+        return texture
     }
 
     func update(snapshot: RenderSnapshot) {

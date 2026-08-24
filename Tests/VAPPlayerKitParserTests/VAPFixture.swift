@@ -1,12 +1,9 @@
 import Foundation
 
 enum VAPFixture {
-    static let defaultPlayableName = "e9b6b7196780ea5f64b9f05034571f12a96787278ed678c83141c7913af7318a.mp4"
+    static let defaultPlayableName = "18.mp4"
 
-    static let invalidXMLNames = [
-        "0f691eda3e82a2808e38f34be2e80efde45d4b66084a7e3e80cbd7a9a209c23d.mp4",
-        "38c168451bbfe1b792e84067260011202452d7b04ac762a0c2c0d1e0acd2377f.mp4"
-    ]
+    static let invalidXMLNames = ["2.mp4", "9.mp4"]
 
     static var directory: URL {
         URL(fileURLWithPath: #filePath)
@@ -22,6 +19,15 @@ enum VAPFixture {
     static var allMP4URLs: [URL] {
         (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil))?
             .filter { $0.pathExtension.lowercased() == "mp4" }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
+            .sorted { numericID($0) < numericID($1) } ?? []
+    }
+
+    static var playableURLs: [URL] {
+        let invalid = Set(invalidXMLNames)
+        return allMP4URLs.filter { !invalid.contains($0.lastPathComponent) }
+    }
+
+    private static func numericID(_ url: URL) -> Int {
+        Int(url.deletingPathExtension().lastPathComponent) ?? .max
     }
 }
