@@ -25,7 +25,12 @@ final class AssetInspector {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw PlaybackError.fileNotFound
         }
-        let resourceValues = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+        let resourceValues = try url.resourceValues(forKeys: [
+            .fileSizeKey,
+            .isRegularFileKey,
+            .contentModificationDateKey,
+            .fileResourceIdentifierKey
+        ])
         guard resourceValues.isRegularFile == true, let fileSize = resourceValues.fileSize, fileSize > 0 else {
             throw PlaybackError.invalidMP4(reason: "URL is not a non-empty regular file.")
         }
@@ -100,6 +105,11 @@ final class AssetInspector {
             vapVersion: vapc.version,
             dynamicSources: vapc.sources.map { SourceMetadata(tag: $0.tag, slotSize: $0.slotSize) }
         )
+        metadata.playbackDocument = vapc
+        metadata.sourceURL = url.standardizedFileURL
+        metadata.sourceFileSize = Int64(fileSize)
+        metadata.sourceModificationDate = resourceValues.contentModificationDate
+        metadata.sourceFileIdentifier = resourceValues.fileResourceIdentifier as? Data
         return InspectionResult(metadata: metadata, vapc: vapc)
     }
 

@@ -17,6 +17,7 @@ public final class PlayerView: UIView {
 
     private var session: PlaybackSession?
     private var preparedURL: URL?
+    private var preparedMetadata: AssetMetadata?
     private var preparedOptions: OptionsSignature?
     private var operationGeneration: UInt64 = 0
     private var playTask: Task<Void, Never>?
@@ -104,19 +105,37 @@ public final class PlayerView: UIView {
 
     /// 解析 metadata、准备动态内容和 GPU pipeline，但不自动播放。
     public func prepare(url: URL, options: PlaybackOptions = .defaultOptions) async throws -> AssetMetadata {
+        try await prepareInternal(url: url, metadata: nil, options: options)
+    }
+
+    /// 使用本组件此前为同一 URL 解析出的 metadata 准备，跳过重复 MP4/vapc inspection。
+    public func prepare(
+        url: URL,
+        metadata: AssetMetadata,
+        options: PlaybackOptions = .defaultOptions
+    ) async throws -> AssetMetadata {
+        try await prepareInternal(url: url, metadata: metadata, options: options)
+    }
+
+    private func prepareInternal(
+        url: URL,
+        metadata: AssetMetadata?,
+        options: PlaybackOptions
+    ) async throws -> AssetMetadata {
         let generation = beginNewOperation()
         replaceCurrentSession(reason: .cancelled)
         let newSession = makeSession(url: url, options: options)
         session = newSession
         do {
-            let metadata = try await newSession.prepare()
+            let resolvedMetadata = try await newSession.prepare(using: metadata)
             guard operationGeneration == generation, session?.token == newSession.token else {
                 throw PlaybackError.cancelled
             }
             preparedURL = url
+            preparedMetadata = resolvedMetadata
             preparedOptions = OptionsSignature(options)
             updateSnapshot(for: newSession)
-            return metadata
+            return resolvedMetadata
         } catch {
             if session?.token == newSession.token, newSession.state == .failed { session = nil }
             throw error
@@ -138,54 +157,107 @@ public final class PlayerView: UIView {
         }
     }
 
+    @objc(prepareWithURL:metadata:options:completion:)
+    public func prepare(
+        url: URL,
+        metadata: AssetMetadata,
+        options: PlaybackOptions,
+        completion: @escaping (AssetMetadata?, NSError?) -> Void
+    ) {
+        Task { @MainActor in
+            do {
+                completion(try await prepare(url: url, metadata: metadata, options: options), nil)
+            } catch {
+                completion(nil, error as NSError)
+            }
+        }
+    }
+
     /// 准备并播放。已由相同 URL 与 options 准备好的 ready session 会被复用。
     @objc(playWithURL:options:)
     public func play(url: URL, options: PlaybackOptions = .defaultOptions) {
+        playInternal(url: url, metadata: nil, options: options)
+    }
+
+    /// 使用本组件此前返回的 metadata 播放，避免重复 MP4/vapc inspection。
+    @objc(playWithURL:metadata:options:)
+    public func play(
+        url: URL,
+        metadata: AssetMetadata,
+        options: PlaybackOptions = .defaultOptions
+    ) {
+        playInternal(url: url, metadata: metadata, options: options)
+    }
+
+    private func playInternal(url: URL, metadata suppliedMetadata: AssetMetadata?, options: PlaybackOptions) {
         let generation = beginNewOperation()
         playTask = Task { @MainActor [weak self] in
-            guard let self else { return }
             let signature = OptionsSignature(options)
-            let target: PlaybackSession
-            if
-                let current = self.session,
-                current.state == .ready,
-                self.preparedURL == url,
-                self.preparedOptions == signature
-            {
-                target = current
-            } else {
-                self.replaceCurrentSession(reason: .cancelled)
-                target = self.makeSession(url: url, options: options)
-                self.session = target
+            guard let context = self?.makePlayPreparation(
+                url: url,
+                metadata: suppliedMetadata,
+                options: options,
+                signature: signature
+            ) else { return }
+            var resolvedMetadata: AssetMetadata?
+            if context.requiresPrepare {
                 do {
-                    _ = try await target.prepare()
-                    self.preparedURL = url
-                    self.preparedOptions = signature
+                    resolvedMetadata = try await context.target.prepare(using: suppliedMetadata)
                 } catch {
                     return
                 }
             }
+            guard let self else {
+                context.target.stop(reason: .cancelled)
+                return
+            }
+            if let resolvedMetadata {
+                self.preparedURL = url
+                self.preparedMetadata = resolvedMetadata
+                self.preparedOptions = signature
+            }
             guard
                 !Task.isCancelled,
                 self.operationGeneration == generation,
-                self.session?.token == target.token
+                self.session?.token == context.target.token
             else {
-                target.stop(reason: .cancelled)
+                context.target.stop(reason: .cancelled)
                 return
             }
-            self.updateSnapshot(for: target)
-            target.play()
+            self.updateSnapshot(for: context.target)
+            context.target.play()
             if self.bounds.isEmpty {
-                target.suspend()
+                context.target.suspend()
             } else if self.window == nil {
-                switch target.options.backgroundPolicy {
-                case .suspend: target.suspend()
+                switch context.target.options.backgroundPolicy {
+                case .suspend: context.target.suspend()
                 case .stop:
-                    if target.options.clearsAfterFinish { self.metalLayer.isHidden = true }
-                    target.stop(reason: .stopped)
+                    if context.target.options.clearsAfterFinish { self.metalLayer.isHidden = true }
+                    context.target.stop(reason: .stopped)
                 }
             }
         }
+    }
+
+    private func makePlayPreparation(
+        url: URL,
+        metadata suppliedMetadata: AssetMetadata?,
+        options: PlaybackOptions,
+        signature: OptionsSignature
+    ) -> PlayPreparation {
+        if
+            let current = session,
+            current.state == .ready,
+            preparedURL == url,
+            preparedOptions == signature,
+            suppliedMetadata == nil || preparedMetadata === suppliedMetadata
+        {
+            return PlayPreparation(target: current, requiresPrepare: false)
+        }
+        replaceCurrentSession(reason: .cancelled)
+        let target = makeSession(url: url, options: options)
+        session = target
+        return PlayPreparation(target: target, requiresPrepare: true)
     }
 
     @objc public func pause() { session?.pause() }
@@ -199,6 +271,7 @@ public final class PlayerView: UIView {
         session.stop(reason: .stopped)
         if self.session?.token == session.token { self.session = nil }
         preparedURL = nil
+        preparedMetadata = nil
         preparedOptions = nil
     }
 
@@ -210,6 +283,7 @@ public final class PlayerView: UIView {
             if self.session?.token == session.token { self.session = nil }
         }
         preparedURL = nil
+        preparedMetadata = nil
         preparedOptions = nil
     }
 
@@ -240,6 +314,7 @@ public final class PlayerView: UIView {
             if session.options.clearsAfterFinish { self.metalLayer.isHidden = true }
             self.session = nil
             self.preparedURL = nil
+            self.preparedMetadata = nil
             self.preparedOptions = nil
             self.notifyFinish(reason)
         }
@@ -247,6 +322,7 @@ public final class PlayerView: UIView {
             guard let self, let session, self.session?.token == session.token else { return }
             self.session = nil
             self.preparedURL = nil
+            self.preparedMetadata = nil
             self.preparedOptions = nil
             self.notifyFailure(error)
         }
@@ -275,6 +351,7 @@ public final class PlayerView: UIView {
         session.stop(reason: reason)
         if self.session?.token == session.token { self.session = nil }
         preparedURL = nil
+        preparedMetadata = nil
         preparedOptions = nil
     }
 
@@ -330,6 +407,11 @@ public final class PlayerView: UIView {
         delegate?.player(self, didFail: error)
         objcDelegate?.playerView?(self, didFailWithError: error as NSError)
     }
+}
+
+private struct PlayPreparation {
+    let target: PlaybackSession
+    let requiresPrepare: Bool
 }
 
 private struct OptionsSignature: Equatable {

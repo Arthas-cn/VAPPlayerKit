@@ -126,6 +126,7 @@ final class BatchTestViewController: UIViewController, PlayerDelegate, DynamicCo
                 let initialRenderedCount = renderProbe.renderedFrameCount
                 playerView.play(url: fixture.url, options: options)
                 try await waitForPlaybackEvidence(after: initialRenderedCount, timeout: 3)
+                try await keepPlaying(for: min(1, metadata.duration))
                 playerView.stop()
                 guard currentFinishReason == .stopped else { throw BatchTestError.missingStoppedCallback }
                 append("PASS \(index + 1): \(metadata.codec), \(metadata.frameCount)f")
@@ -173,6 +174,14 @@ final class BatchTestViewController: UIViewController, PlayerDelegate, DynamicCo
         throw BatchTestError.noRenderedFrame
     }
 
+    private func keepPlaying(for duration: TimeInterval) async throws {
+        let deadline = ProcessInfo.processInfo.systemUptime + max(0, duration)
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if let currentFailure { throw currentFailure }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
     func playerDidStart(_ player: PlayerView) { currentDidStart = true }
     func player(_ player: PlayerView, didUpdate metadata: AssetMetadata) {}
     func playerDidFinish(_ player: PlayerView, reason: FinishReason) { currentFinishReason = reason }
@@ -184,7 +193,7 @@ final class BatchTestViewController: UIViewController, PlayerDelegate, DynamicCo
         completion: @escaping (DynamicContent?, Error?) -> Void
     ) {
         if tag.localizedCaseInsensitiveContains("text") || tag.localizedCaseInsensitiveContains("name") {
-            completion(.text("VAP Swift", attributes: TextAttributes(font: .boldSystemFont(ofSize: 24))), nil)
+            completion(.textReplacement("VAP Swift"), nil)
             return
         }
         let image = UIGraphicsImageRenderer(size: source.slotSize).image { context in

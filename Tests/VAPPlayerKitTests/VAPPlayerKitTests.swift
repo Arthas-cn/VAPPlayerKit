@@ -1,4 +1,5 @@
 import XCTest
+import QuartzCore
 @testable import VAPPlayerKit
 
 final class VAPPlayerKitTests: XCTestCase {
@@ -109,6 +110,295 @@ final class VAPPlayerKitTests: XCTestCase {
         }
         XCTAssertEqual(textImage.size, CGSize(width: 197, height: 52))
     }
+
+    @MainActor
+    func testTextReplacementUsesSourceStyleAndFitsOriginalSlot() async throws {
+        let resolver = DynamicResolver()
+        let provider = ReplacementTextProviderStub()
+        resolver.provider = provider
+        let replacement = "只提供字符串"
+        let source = VapcSource(
+            id: "nickname",
+            kind: .text,
+            tag: "nickname",
+            slotSize: CGSize(width: 197, height: 52),
+            loadType: "local",
+            fitType: "fitXY",
+            color: "#E7C454",
+            style: "b"
+        )
+        let attributes = DynamicResolver.replacementTextAttributes(replacement, source: source)
+        XCTAssertTrue(attributes.font.fontDescriptor.symbolicTraits.contains(.traitBold))
+        XCTAssertLessThanOrEqual(attributes.font.pointSize, source.slotSize.height)
+        let replacementSize = (replacement as NSString).size(withAttributes: [.font: attributes.font])
+        XCTAssertLessThanOrEqual(replacementSize.width, source.slotSize.width)
+        XCTAssertLessThanOrEqual(replacementSize.height, source.slotSize.height)
+        let components = attributes.color.cgColor.components ?? []
+        XCTAssertGreaterThanOrEqual(components.count, 3)
+        if components.count >= 3 {
+            XCTAssertEqual(components[0], 231.0 / 255.0, accuracy: 0.01)
+            XCTAssertEqual(components[1], 196.0 / 255.0, accuracy: 0.01)
+            XCTAssertEqual(components[2], 84.0 / 255.0, accuracy: 0.01)
+        }
+        let snapshot = try await resolver.resolve(sources: [source], timeout: 1)
+        guard case .image(let image) = snapshot.contents[source.id] else {
+            return XCTFail("String-only replacement should become a text texture")
+        }
+        XCTAssertEqual(image.size, source.slotSize)
+        XCTAssertNotNil(image.cgImage)
+    }
+
+    @MainActor
+    func testTextReplacementFitsLongSingleLineInsideNarrowSlot() {
+        let replacement = "VERY-LONG-REPLACEMENT"
+        let source = VapcSource(
+            id: "narrow",
+            kind: .text,
+            tag: "narrow",
+            slotSize: CGSize(width: 40, height: 120),
+            loadType: "local",
+            fitType: "fitXY",
+            color: "#FFFFFF",
+            style: nil
+        )
+        let attributes = DynamicResolver.replacementTextAttributes(replacement, source: source)
+        let size = (replacement as NSString).size(withAttributes: [.font: attributes.font])
+        XCTAssertLessThanOrEqual(size.width, source.slotSize.width)
+        XCTAssertLessThanOrEqual(size.height, source.slotSize.height)
+    }
+
+    @MainActor
+    func testMissingDynamicContentDefaultsToHiddenAndDoesNotFailPrepare() async throws {
+        let source = VapcSource(
+            id: "avatar",
+            kind: .image,
+            tag: "avatar",
+            slotSize: CGSize(width: 64, height: 64),
+            loadType: "net",
+            fitType: "fitXY",
+            color: nil,
+            style: nil
+        )
+
+        let withoutProvider = try await DynamicResolver().resolve(sources: [source], timeout: 0.1)
+        guard case .hidden = withoutProvider.contents[source.id] else {
+            return XCTFail("Missing provider must produce an empty dynamic slot")
+        }
+
+        let resolver = DynamicResolver()
+        let provider = NilDynamicProviderStub()
+        resolver.provider = provider
+        let missingValue = try await resolver.resolve(sources: [source], timeout: 0.1)
+        guard case .hidden = missingValue.contents[source.id] else {
+            return XCTFail("Provider returning nil must produce an empty dynamic slot")
+        }
+    }
+
+    @MainActor
+    func testReusableMetadataSkipsVapcReinspectionForSameURL() async throws {
+        let url = VAPFixture.url(VAPFixture.defaultPlayableName)
+        let metadata = try await AssetInspector().inspect(url: url)
+        XCTAssertTrue(metadata.isReusableForPlayback)
+
+        let player = PlayerView(frame: CGRect(x: 0, y: 0, width: 320, height: 320))
+        let reused = try await player.prepare(url: url, metadata: metadata)
+        XCTAssertTrue(reused === metadata)
+        player.clear()
+    }
+
+    @MainActor
+    func testReusableMetadataRejectsDifferentURLAndManualSummary() async throws {
+        let sourceURL = VAPFixture.url(VAPFixture.defaultPlayableName)
+        let metadata = try await AssetInspector().inspect(url: sourceURL)
+        let differentURL = VAPFixture.playableURLs.first { $0 != sourceURL }!
+        let player = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
+        do {
+            _ = try await player.prepare(url: differentURL, metadata: metadata)
+            XCTFail("Metadata from another URL must not be reused")
+        } catch let error as PlaybackError {
+            XCTAssertEqual(error.code, .invalidVapc)
+        }
+
+        let manual = AssetMetadata(
+            encodedVideoSize: metadata.encodedVideoSize,
+            canvasSize: metadata.canvasSize,
+            alphaMode: metadata.alphaMode,
+            frameCount: metadata.frameCount,
+            duration: metadata.duration,
+            containsAudio: metadata.containsAudio,
+            codec: metadata.codec
+        )
+        XCTAssertFalse(manual.isReusableForPlayback)
+    }
+
+    @MainActor
+    func testReusableMetadataRejectsAChangedFileSignature() async throws {
+        let fixture = VAPFixture.url(VAPFixture.defaultPlayableName)
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vap-metadata-\(UUID().uuidString).mp4")
+        try FileManager.default.copyItem(at: fixture, to: temporaryURL)
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+
+        let metadata = try await AssetInspector().inspect(url: temporaryURL)
+        XCTAssertTrue(metadata.isReusableForPlayback)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: 60)],
+            ofItemAtPath: temporaryURL.path
+        )
+
+        let player = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
+        do {
+            _ = try await player.prepare(url: temporaryURL, metadata: metadata)
+            XCTFail("Metadata must not be reused after the file signature changes")
+        } catch let error as PlaybackError {
+            XCTAssertEqual(error.code, .invalidMP4)
+        }
+    }
+
+    @MainActor
+    func testReusableMetadataRejectsFileChangedDuringDecoderPrepare() async throws {
+        let fixture = VAPFixture.url(VAPFixture.defaultPlayableName)
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vap-metadata-race-\(UUID().uuidString).mp4")
+        try FileManager.default.copyItem(at: fixture, to: temporaryURL)
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+
+        let metadata = try await AssetInspector().inspect(url: temporaryURL)
+        let frameSource = MutatingFrameSource(
+            metadata: FrameSourceMetadata(
+                encodedVideoSize: metadata.encodedVideoSize,
+                codec: metadata.codec
+            )
+        ) {
+            try FileManager.default.setAttributes(
+                [.modificationDate: Date(timeIntervalSinceNow: 60)],
+                ofItemAtPath: temporaryURL.path
+            )
+        }
+        let layer = CAMetalLayer()
+        let session = PlaybackSession(
+            url: temporaryURL,
+            options: PlaybackOptions.defaultOptions,
+            metalLayer: layer,
+            dynamicProvider: nil,
+            objcDynamicProvider: nil,
+            frameSource: frameSource
+        )
+
+        do {
+            _ = try await session.prepare(using: metadata)
+            XCTFail("A file replaced during decoder preparation must be rejected")
+        } catch let error as PlaybackError {
+            XCTAssertEqual(error.code, .invalidMP4)
+        }
+    }
+
+    @MainActor
+    func testReusableMetadataRejectsSameSizeAndDateReplacement() async throws {
+        let fixture = VAPFixture.url(VAPFixture.defaultPlayableName)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vap-identity-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let playbackURL = directory.appendingPathComponent("asset.mp4")
+        let replacementURL = directory.appendingPathComponent("replacement.mp4")
+        try FileManager.default.copyItem(at: fixture, to: playbackURL)
+        let metadata = try await AssetInspector().inspect(url: playbackURL)
+        let expectedDate = try XCTUnwrap(metadata.sourceModificationDate)
+        let expectedSize = try XCTUnwrap(metadata.sourceFileSize)
+        let expectedIdentifier = try XCTUnwrap(metadata.sourceFileIdentifier)
+
+        try FileManager.default.copyItem(at: fixture, to: replacementURL)
+        try FileManager.default.removeItem(at: playbackURL)
+        try FileManager.default.moveItem(at: replacementURL, to: playbackURL)
+        try FileManager.default.setAttributes(
+            [.modificationDate: expectedDate],
+            ofItemAtPath: playbackURL.path
+        )
+        let values = try playbackURL.resourceValues(forKeys: [
+            .fileSizeKey,
+            .contentModificationDateKey,
+            .fileResourceIdentifierKey
+        ])
+        XCTAssertEqual(Int64(try XCTUnwrap(values.fileSize)), expectedSize)
+        XCTAssertEqual(values.contentModificationDate, expectedDate)
+        XCTAssertNotEqual(values.fileResourceIdentifier as? Data, expectedIdentifier)
+
+        let player = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
+        do {
+            _ = try await player.prepare(url: playbackURL, metadata: metadata)
+            XCTFail("Replacing a file while preserving size and mtime must invalidate metadata")
+        } catch let error as PlaybackError {
+            XCTAssertEqual(error.code, .invalidMP4)
+        }
+    }
+
+    @MainActor
+    func testPreparedSessionAndOwnedResourcesAreReleasedAfterStop() async throws {
+        let url = VAPFixture.url(VAPFixture.defaultPlayableName)
+        let layer = CAMetalLayer()
+        layer.frame = CGRect(x: 0, y: 0, width: 64, height: 64)
+        layer.drawableSize = CGSize(width: 64, height: 64)
+
+        var frameSource: AVAssetReaderFrameSource? = AVAssetReaderFrameSource(url: url)
+        var renderer: MetalRenderer? = MetalRenderer()
+        var session: PlaybackSession? = PlaybackSession(
+            url: url,
+            options: PlaybackOptions.defaultOptions,
+            metalLayer: layer,
+            dynamicProvider: nil,
+            objcDynamicProvider: nil,
+            frameSource: frameSource,
+            renderer: renderer!
+        )
+        weak var weakSession = session
+        weak var weakFrameSource = frameSource
+        weak var weakRenderer = renderer
+
+        let playbackStarted = expectation(description: "decoder produced a frame and started the timeline")
+        session!.onStart = { playbackStarted.fulfill() }
+        _ = try await session!.prepare()
+        session!.play()
+        await fulfillment(of: [playbackStarted], timeout: 10)
+        session!.stop(reason: .stopped)
+        session = nil
+        frameSource = nil
+        renderer = nil
+
+        for _ in 0..<100 where weakSession != nil || weakFrameSource != nil || weakRenderer != nil {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertNil(weakSession, "PlaybackSession leaked after stop")
+        XCTAssertNil(weakFrameSource, "Frame source leaked after stop")
+        XCTAssertNil(weakRenderer, "Metal renderer leaked after stop")
+    }
+
+    @MainActor
+    func testPlayerViewLifecycleObserversDoNotRetainPlayer() async {
+        var player: PlayerView? = PlayerView()
+        weak var weakPlayer = player
+        player?.clear()
+        player = nil
+        for _ in 0..<10 where weakPlayer != nil { await Task.yield() }
+        XCTAssertNil(weakPlayer)
+    }
+
+    @MainActor
+    func testPlayerViewIsReleasedWhileDynamicProviderIsPending() async {
+        let requested = expectation(description: "dynamic provider was invoked")
+        let provider = NeverCompletingDynamicProviderStub { requested.fulfill() }
+        var player: PlayerView? = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
+        player?.dynamicContentProvider = provider
+        player?.play(url: VAPFixture.url("8.mp4"))
+        await fulfillment(of: [requested], timeout: 10)
+
+        weak var weakPlayer = player
+        player = nil
+        for _ in 0..<100 where weakPlayer != nil {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertNil(weakPlayer, "playTask retained PlayerView while dynamic prepare was pending")
+    }
 }
 
 private final class DynamicProviderStub: DynamicContentProvider {
@@ -126,5 +416,73 @@ private final class DynamicProviderStub: DynamicContentProvider {
             }
             completion(.image(image), nil)
         }
+    }
+}
+
+private final class ReplacementTextProviderStub: DynamicContentProvider {
+    func resolve(
+        tag: String,
+        source: SourceMetadata,
+        completion: @escaping (DynamicContent?, Error?) -> Void
+    ) {
+        completion(.textReplacement("只提供字符串"), nil)
+    }
+}
+
+private final class NilDynamicProviderStub: DynamicContentProvider {
+    func resolve(
+        tag: String,
+        source: SourceMetadata,
+        completion: @escaping (DynamicContent?, Error?) -> Void
+    ) {
+        completion(nil, nil)
+    }
+}
+
+private final class MutatingFrameSource: FrameSource {
+    private let metadata: FrameSourceMetadata
+    private let mutation: () throws -> Void
+
+    init(metadata: FrameSourceMetadata, mutation: @escaping () throws -> Void) {
+        self.metadata = metadata
+        self.mutation = mutation
+    }
+
+    func prepare() async throws -> FrameSourceMetadata {
+        try mutation()
+        return metadata
+    }
+
+    func startProducing(
+        to buffer: FrameRingBuffer,
+        token: SessionToken,
+        didProduce: @escaping (Int) -> Void,
+        completion: @escaping (Result<Void, PlaybackError>) -> Void
+    ) {}
+
+    func pause() {}
+    func resume() {}
+    func cancel() {}
+}
+
+private final class NeverCompletingDynamicProviderStub: DynamicContentProvider {
+    private let onFirstRequest: () -> Void
+    private var didNotify = false
+
+    init(onFirstRequest: @escaping () -> Void) {
+        self.onFirstRequest = onFirstRequest
+    }
+
+    func resolve(
+        tag: String,
+        source: SourceMetadata,
+        completion: @escaping (DynamicContent?, Error?) -> Void
+    ) {
+        if !didNotify {
+            didNotify = true
+            onFirstRequest()
+        }
+        // Intentionally keep the request pending. PlayerView deinit must cancel
+        // the session without waiting for the normal dynamic timeout.
     }
 }

@@ -26,6 +26,22 @@ public final class AssetMetadata: NSObject {
     /// vapc 声明的动态 source；legacy 文件为空。
     @objc public let dynamicSources: [SourceMetadata]
 
+    /// 是否携带本组件解析得到的内部布局，可直接用于 metadata 复用播放 API。
+    /// 手工调用公开 initializer 构造的摘要对象不包含完整帧布局，因此返回 `false`。
+    @objc public var isReusableForPlayback: Bool {
+        playbackDocument != nil
+            && sourceURL != nil
+            && sourceFileSize != nil
+            && sourceModificationDate != nil
+            && sourceFileIdentifier != nil
+    }
+
+    internal var playbackDocument: VapcDocument?
+    internal var sourceURL: URL?
+    internal var sourceFileSize: Int64?
+    internal var sourceModificationDate: Date?
+    internal var sourceFileIdentifier: Data?
+
     /// 由 `AssetInspector` 在后台解析完成后构造。宿主也可以在测试里直接创建。
     @objc public init(
         encodedVideoSize: CGSize,

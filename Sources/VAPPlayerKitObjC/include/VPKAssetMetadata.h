@@ -33,6 +33,8 @@ typedef NS_ENUM(NSInteger, VPKAlphaMode) {
 @property (nonatomic, readonly, assign) NSInteger vapVersion;
 /// vapc 动态 source 槽位。
 @property (nonatomic, readonly, copy) NSArray<VPKSourceMetadata *> *dynamicSources;
+/// YES only for metadata returned by this component with its internal VAP layout attached.
+@property (nonatomic, readonly, assign, getter=isReusableForPlayback) BOOL reusableForPlayback;
 
 - (instancetype)initWithEncodedVideoSize:(CGSize)encodedVideoSize
                               canvasSize:(CGSize)canvasSize

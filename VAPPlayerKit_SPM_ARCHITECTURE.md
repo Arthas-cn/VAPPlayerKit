@@ -414,11 +414,18 @@ Shader 放在 VAPPlayerKit target 的 Resources 中，由 Swift 使用 Bundle.mo
 ~~~swift
 public enum DynamicContent {
     case text(String, attributes: TextAttributes)
+    case textReplacement(String)
     case image(UIImage)
     case imageURL(URL)
     case hidden
 }
 ~~~
+
+`textReplacement` 服务于宿主只提供 tag/value 的常见场景：使用 vapc source 的颜色、粗体标记和 slot 约束，自动选择可放入槽位的系统字号。vapc 不包含字体文件或精确 point size，因此不能承诺恢复原字体族或精确字号；有严格排版要求时继续使用 `text(_:attributes:)`。
+
+该 case 扩展了 public enum，对 exhaustive switch 是源码破坏性变更；从已发布版本升级时必须按 SemVer major 交付并提供迁移说明，调用方需要处理 `.textReplacement` 或使用 `@unknown default`。
+
+没有 provider，或 provider 对某个 tag 返回 `nil` / `.hidden`，都固化为透明空槽位；动态内容缺省不得阻止视频准备或播放。provider 明确返回 error 或超过 timeout 仍按错误模型处理。
 
 公开 resolver 只表达“请求什么”和“完成什么”，不关心网络实现：
 
@@ -511,6 +518,7 @@ public final class AssetMetadata: NSObject {
     public let duration: TimeInterval
     public let containsAudio: Bool
     public let codec: String
+    public var isReusableForPlayback: Bool { get }
 }
 
 @MainActor
@@ -531,8 +539,20 @@ public final class PlayerView: UIView {
         options: PlaybackOptions
     ) async throws -> AssetMetadata
 
+    public func prepare(
+        url: URL,
+        metadata: AssetMetadata,
+        options: PlaybackOptions
+    ) async throws -> AssetMetadata
+
     public func play(
         url: URL,
+        options: PlaybackOptions
+    )
+
+    public func play(
+        url: URL,
+        metadata: AssetMetadata,
         options: PlaybackOptions
     )
 
@@ -548,6 +568,7 @@ API 语义：
 - loopCount 是总播放次数；1 表示播放一次，2 表示播放两次，0 表示无限循环。
 - prepare 不自动播放。
 - play 可以直接触发 prepare；如果资源已经准备好则复用 metadata。
+- metadata 优化入口只接受本组件为同一标准化本地 URL 解析出的、仍与稳定文件 identity、文件大小和修改时间匹配的对象；手工构造、不同 URL 或已变更文件会失败。它在解码轨准备前后复核文件签名，并校验轨道尺寸和 codec，避免以摘要数据绕过媒体有效性检查。源文件在 prepare/play/stop 生命周期内必须保持不可变；需要抵御不受信任的同 inode 并发改写时，应由宿主先完成原子缓存发布，或未来改为同一文件描述符驱动 inspection 与 decode。
 - stop 一定取消当前 session。
 - clear 释放当前画面和可回收资源。
 - 所有 UIKit 和控制方法要求主线程。
@@ -650,13 +671,26 @@ typedef NS_ENUM(NSInteger, VPKPlaybackErrorCode) {
 @property(nonatomic, assign) BOOL clearsAfterFinish;
 @end
 
+@interface VPKAssetMetadata : NSObject
+@property(nonatomic, readonly, getter=isReusableForPlayback) BOOL reusableForPlayback;
+@end
+
 @interface VPKPlayerView : UIView
 @property(nonatomic, weak, nullable) id<VPKPlayerDelegate> delegate;
 
 - (void)prepareWithURL:(NSURL *)URL
+               options:(VPKPlaybackOptions *)options
             completion:(void (^)(VPKAssetMetadata * _Nullable metadata,
                                  NSError * _Nullable error))completion;
+- (void)prepareWithURL:(NSURL *)URL
+              metadata:(VPKAssetMetadata *)metadata
+               options:(VPKPlaybackOptions *)options
+            completion:(void (^)(VPKAssetMetadata * _Nullable result,
+                                 NSError * _Nullable error))completion;
 - (void)playWithURL:(NSURL *)URL
+            options:(VPKPlaybackOptions *)options;
+- (void)playWithURL:(NSURL *)URL
+           metadata:(VPKAssetMetadata *)metadata
             options:(VPKPlaybackOptions *)options;
 - (void)pause;
 - (void)resume;

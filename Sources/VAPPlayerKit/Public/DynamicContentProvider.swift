@@ -19,6 +19,11 @@ public struct TextAttributes: @unchecked Sendable {
 public enum DynamicContent: @unchecked Sendable {
     /// 由组件按 `source.slotSize` 预绘成纹理。
     case text(String, attributes: TextAttributes)
+    /// 只替换字符串。组件使用 vapc source 声明的颜色和字重，并按槽位自动适配字号。
+    ///
+    /// vapc 不携带字体文件或精确 point size，因此这里保持的是动效声明的样式与布局约束；
+    /// 需要指定字体族或固定字号时请继续使用 `text(_:attributes:)`。
+    case textReplacement(String)
     /// 已经解码的图片，组件会按 slot 预缩放。
     case image(UIImage)
     /// 仅表达「这是一个图片 URL」。下载仍由宿主完成；组件不会发网络请求。

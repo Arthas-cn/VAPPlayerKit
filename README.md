@@ -38,8 +38,29 @@ player.play(url: fileURL, options: options)
 ```swift
 let metadata = try await player.prepare(url: fileURL, options: options)
 print(metadata.canvasSize, metadata.dynamicSources)
-player.play(url: fileURL, options: options)
+if metadata.isReusableForPlayback {
+    // 同一个本地文件未发生变化时，跳过重复的 MP4/vapc inspection。
+    player.play(url: fileURL, metadata: metadata, options: options)
+}
 ```
+
+动态文字通常只需要按 tag 返回字符串：
+
+```swift
+func resolve(
+    tag: String,
+    source: SourceMetadata,
+    completion: @escaping (DynamicContent?, Error?) -> Void
+) {
+    completion(.textReplacement(values[tag] ?? ""), nil)
+}
+```
+
+`.textReplacement` 会使用 vapc source 声明的颜色、粗体标记和槽位尺寸，并自动计算能放入槽位的系统字号。vapc 本身不包含字体文件或精确 point size，因此无法还原原字体族和精确字号；需要完全指定字体时使用 `.text(_:attributes:)`。未设置 provider，或 provider 对某个 tag 返回 `nil` / `.hidden` 时，该动态槽位按透明空内容处理，视频仍会正常准备和播放。
+
+兼容性说明：`.textReplacement` 是 public enum 的新 case，已有调用方若对 `DynamicContent` 使用 exhaustive `switch`，升级后必须补充该分支（或使用 `@unknown default`）。这是源码破坏性变更，已有正式版本应按 SemVer major 发布，并在迁移说明中列出该 switch 修改。
+
+Metadata 复用会在解码轨准备前后校验稳定文件 identity、文件大小和修改时间；调用方仍应把本地资源视为不可变，在 prepare/play/stop 生命周期内不要替换或改写该路径。需要对不受信任的并发写入提供强一致性时，应先由宿主完成原子下载与缓存发布，再交给播放器。
 
 ## Objective-C
 
@@ -50,6 +71,9 @@ VPKPlayerView *playerView = [[VPKPlayerView alloc] initWithFrame:CGRectZero];
 VPKPlaybackOptions *options = VPKPlaybackOptions.defaultOptions;
 [playerView playWithURL:fileURL options:options];
 ```
+
+Objective-C 也可以将同一 URL 的 `VPKAssetMetadata` 传给
+`playWithURL:metadata:options:`；仅 `reusableForPlayback == YES` 的 metadata 可用于该优化入口。
 
 `VPKPlayerViewDelegate` 提供开始、metadata、完成和失败回调；动态图片可通过
 `VPKDynamicContentProvider` 注入。
@@ -71,9 +95,9 @@ VPKPlaybackOptions *options = VPKPlaybackOptions.defaultOptions;
 
 Swift 示例 App 会把 `Tests/Fixtures/VAP` 打进 Bundle，并在启动时自动扫描全部 MP4：
 
-- 首页按文件展示素材清单，可搜索、刷新，并标识负向 fixture。
-- 点击素材进入 Playback Lab，可验证 prepare / play / pause / resume / stop / clear、三种缩放、循环、音频、后台策略、动态内容及实时指标。
-- Playback Lab 可运行单素材自动冒烟测试并导出诊断报告；首页工具栏可运行全部 Bundle 素材的真机批测。
+- 首页按文件展示素材清单，每行内嵌播放器并在可见时自动循环预览；负向 fixture 只显示错误标识。
+- 点击素材进入 Playback Lab 后自动播放，也可继续验证 prepare / play / pause / resume / stop / clear、三种缩放、循环、音频、后台策略、动态内容及实时指标。
+- Playback Lab 可运行单素材自动冒烟测试并导出诊断报告；首页工具栏可运行全部 Bundle 素材的真机批测，每个合法素材至少播放 `min(1 秒, 实际时长)`。
 
 完整素材清单见 [`Tests/Fixtures/README.md`](Tests/Fixtures/README.md)。这些文件需要随仓库提交，供单元测试和 Demo 共用。
 
@@ -100,6 +124,8 @@ xcodebuild \
 
 CI 同时编译 Swift 与 Objective-C 示例。发布前仍需按
 [`VAPPlayerKit_SPM_ARCHITECTURE.md`](VAPPlayerKit_SPM_ARCHITECTURE.md) 执行真机、长循环和 Instruments 验收。
+当前实现的性能边界、自动化证据、已知缺陷和优化优先级见
+[`VAPPlayerKit_PERFORMANCE_EVALUATION.md`](VAPPlayerKit_PERFORMANCE_EVALUATION.md)。
 
 Swift 示例还包含 `SwiftExampleUITests`，连接已签名真机后可运行：
 

@@ -1,4 +1,5 @@
 import UIKit
+import VAPPlayerKit
 
 /// 自动扫描 Bundle/VAP 的资源浏览器。每个文件对应一行，点击进入完整播放器实验室。
 final class ViewController: UIViewController {
@@ -13,6 +14,16 @@ final class ViewController: UIViewController {
         configureTableView()
         configureSearch()
         reloadFixtures()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        tableView.visibleCells.compactMap { $0 as? FixtureCell }.forEach { $0.startPreview() }
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        tableView.visibleCells.compactMap { $0 as? FixtureCell }.forEach { $0.stopPreview() }
     }
 
     private func configureAppearance() {
@@ -42,7 +53,7 @@ final class ViewController: UIViewController {
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.backgroundColor = .clear
         tableView.separatorStyle = .none
-        tableView.rowHeight = 104
+        tableView.rowHeight = 118
         tableView.delegate = self
         tableView.dataSource = self
         tableView.register(FixtureCell.self, forCellReuseIdentifier: FixtureCell.reuseIdentifier)
@@ -127,6 +138,14 @@ extension ViewController: UITableViewDataSource, UITableViewDelegate {
             animated: true
         )
     }
+
+    func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
+        (cell as? FixtureCell)?.startPreview()
+    }
+
+    func tableView(_ tableView: UITableView, didEndDisplaying cell: UITableViewCell, forRowAt indexPath: IndexPath) {
+        (cell as? FixtureCell)?.stopPreview()
+    }
 }
 
 extension ViewController: UISearchResultsUpdating {
@@ -135,15 +154,18 @@ extension ViewController: UISearchResultsUpdating {
     }
 }
 
-private final class FixtureCell: UITableViewCell {
+private final class FixtureCell: UITableViewCell, PlayerDelegate, DynamicContentProvider {
     static let reuseIdentifier = "FixtureCell"
 
     private let card = UIView()
+    private let previewView = PlayerView()
     private let indexLabel = UILabel()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let sizeLabel = PaddingLabel()
     private let stateImage = UIImageView()
+    private var fixture: VAPFixture?
+    private var isPreviewActive = false
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -156,11 +178,21 @@ private final class FixtureCell: UITableViewCell {
         card.layer.cornerCurve = .continuous
         contentView.addSubview(card)
 
-        indexLabel.font = .monospacedDigitSystemFont(ofSize: 15, weight: .bold)
+        previewView.translatesAutoresizingMaskIntoConstraints = false
+        previewView.backgroundColor = UIColor(white: 0.025, alpha: 0.8)
+        previewView.layer.cornerRadius = 14
+        previewView.clipsToBounds = true
+        previewView.isUserInteractionEnabled = false
+        previewView.isAccessibilityElement = true
+        previewView.delegate = self
+        previewView.dynamicContentProvider = self
+        card.addSubview(previewView)
+
+        indexLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .bold)
         indexLabel.textColor = UIColor(red: 0.42, green: 0.82, blue: 1, alpha: 1)
         indexLabel.textAlignment = .center
         indexLabel.backgroundColor = UIColor(red: 0.11, green: 0.22, blue: 0.31, alpha: 1)
-        indexLabel.layer.cornerRadius = 14
+        indexLabel.layer.cornerRadius = 7
         indexLabel.clipsToBounds = true
 
         titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
@@ -188,11 +220,15 @@ private final class FixtureCell: UITableViewCell {
             card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -5),
             card.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            indexLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 14),
-            indexLabel.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            indexLabel.widthAnchor.constraint(equalToConstant: 48),
-            indexLabel.heightAnchor.constraint(equalToConstant: 48),
-            titleLabel.leadingAnchor.constraint(equalTo: indexLabel.trailingAnchor, constant: 14),
+            previewView.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
+            previewView.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            previewView.widthAnchor.constraint(equalToConstant: 92),
+            previewView.heightAnchor.constraint(equalToConstant: 92),
+            indexLabel.leadingAnchor.constraint(equalTo: previewView.leadingAnchor, constant: 5),
+            indexLabel.topAnchor.constraint(equalTo: previewView.topAnchor, constant: 5),
+            indexLabel.widthAnchor.constraint(equalToConstant: 28),
+            indexLabel.heightAnchor.constraint(equalToConstant: 20),
+            titleLabel.leadingAnchor.constraint(equalTo: previewView.trailingAnchor, constant: 14),
             titleLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 17),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: stateImage.leadingAnchor, constant: -10),
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
@@ -208,13 +244,77 @@ private final class FixtureCell: UITableViewCell {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        fixture = nil
+        isPreviewActive = false
+        previewView.clear()
+        previewView.accessibilityValue = "idle"
+    }
+
     func configure(with fixture: VAPFixture, index: Int) {
+        stopPreview()
+        self.fixture = fixture
         indexLabel.text = String(format: "%02d", index + 1)
         titleLabel.text = fixture.looksLikeMedia ? "VAP 动画资源" : "损坏资源（负向样例）"
         subtitleLabel.text = fixture.shortIdentifier
         sizeLabel.text = "  \(fixture.formattedSize)  "
         accessibilityIdentifier = "catalog.item.\(index)"
         accessibilityLabel = "资源 \(index + 1)，\(fixture.formattedSize)，\(fixture.shortIdentifier)"
+        previewView.accessibilityIdentifier = "catalog.preview.\(index)"
+        previewView.accessibilityValue = fixture.looksLikeMedia ? "idle" : "invalid"
+    }
+
+    func startPreview() {
+        guard !isPreviewActive, let fixture, fixture.looksLikeMedia else { return }
+        isPreviewActive = true
+        let options = PlaybackOptions.defaultOptions
+        options.loopCount = 0
+        options.clearsAfterFinish = false
+        options.contentMode = .scaleAspectFit
+        previewView.accessibilityValue = "preparing"
+        previewView.play(url: fixture.url, options: options)
+    }
+
+    func stopPreview() {
+        isPreviewActive = false
+        previewView.stop()
+        if fixture?.looksLikeMedia == true { previewView.accessibilityValue = "idle" }
+    }
+
+    func playerDidStart(_ player: PlayerView) {
+        previewView.accessibilityValue = "playing"
+    }
+
+    func player(_ player: PlayerView, didUpdate metadata: AssetMetadata) {}
+
+    func playerDidFinish(_ player: PlayerView, reason: FinishReason) {
+        previewView.accessibilityValue = "finished"
+    }
+
+    func player(_ player: PlayerView, didFail error: Error) {
+        previewView.accessibilityValue = "failed"
+    }
+
+    func resolve(
+        tag: String,
+        source: SourceMetadata,
+        completion: @escaping (DynamicContent?, Error?) -> Void
+    ) {
+        if tag.localizedCaseInsensitiveContains("text")
+            || tag.localizedCaseInsensitiveContains("name")
+            || tag.localizedCaseInsensitiveContains("content") {
+            completion(.textReplacement("Preview"), nil)
+            return
+        }
+        let size = CGSize(width: max(1, source.slotSize.width), height: max(1, source.slotSize.height))
+        let image = UIGraphicsImageRenderer(size: size).image { context in
+            UIColor.systemTeal.setFill()
+            context.cgContext.fill(CGRect(origin: .zero, size: size))
+            UIColor.white.withAlphaComponent(0.25).setFill()
+            context.cgContext.fill(CGRect(x: 0, y: 0, width: size.width * 0.42, height: size.height))
+        }
+        completion(.image(image), nil)
     }
 }
 

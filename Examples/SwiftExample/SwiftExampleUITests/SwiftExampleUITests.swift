@@ -21,17 +21,19 @@ final class SwiftExampleUITests: XCTestCase {
 
         let first = list.cells.element(boundBy: 0)
         XCTAssertTrue(first.waitForExistence(timeout: 5))
+        let rowPreview = app.otherElements["catalog.preview.0"]
+        XCTAssertTrue(rowPreview.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            waitForValue(rowPreview, accepted: ["playing"], timeout: 12),
+            "The first catalog row did not start its embedded player preview."
+        )
         first.tap()
 
         XCTAssertTrue(app.otherElements["detail.player"].waitForExistence(timeout: 5))
-        tapControl("detail.prepare")
         XCTAssertTrue(
-            waitForState(["READY"], timeout: 12),
-            "Prepare did not finish. \(detailDiagnostics())"
+            waitForState(["PLAYING"], timeout: 12),
+            "Detail page did not auto-play. \(detailDiagnostics())"
         )
-
-        tapControl("detail.play")
-        XCTAssertTrue(waitForState(["PLAYING"], timeout: 12))
         tapControl("detail.pause")
         XCTAssertTrue(waitForState(["PAUSED"], timeout: 3))
         tapControl("detail.resume")
@@ -98,6 +100,16 @@ final class SwiftExampleUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return accepted.contains(state.label)
+    }
+
+    private func waitForValue(_ element: XCUIElement, accepted: [String], timeout: TimeInterval) -> Bool {
+        guard element.waitForExistence(timeout: 5) else { return false }
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let value = element.value as? String, accepted.contains(value) { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return (element.value as? String).map(accepted.contains) ?? false
     }
 
     private func detailDiagnostics() -> String {

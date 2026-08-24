@@ -23,10 +23,26 @@
 - (void)testPlayerViewCanBeCreatedFromObjectiveC {
     VPKPlayerView *playerView = [[VPKPlayerView alloc] initWithFrame:CGRectMake(0, 0, 100, 100)];
     XCTAssertNotNil(playerView);
+    XCTAssertTrue([playerView respondsToSelector:@selector(prepareWithURL:metadata:options:completion:)]);
+    XCTAssertTrue([playerView respondsToSelector:@selector(playWithURL:metadata:options:)]);
     [playerView pause];
     [playerView resume];
     [playerView stop];
     [playerView clear];
+}
+
+- (void)testManuallyConstructedMetadataIsNotReusableForPlayback {
+    VPKAssetMetadata *metadata = [[VPKAssetMetadata alloc]
+        initWithEncodedVideoSize:CGSizeMake(200, 100)
+        canvasSize:CGSizeMake(100, 100)
+        alphaMode:VPKAlphaModeLeft
+        frameCount:30
+        duration:1
+        containsAudio:NO
+        codec:@"h264"
+        vapVersion:0
+        dynamicSources:@[]];
+    XCTAssertFalse(metadata.reusableForPlayback);
 }
 
 - (void)testErrorDomainConstant {

@@ -19,8 +19,18 @@ NS_ASSUME_NONNULL_BEGIN
                options:(VPKPlaybackOptions *)options
             completion:(void (^)(VPKAssetMetadata * _Nullable metadata, NSError * _Nullable error))completion;
 
+/// 使用本组件此前为同一 URL 返回的 metadata，跳过重复 MP4/vapc inspection。
+- (void)prepareWithURL:(NSURL *)URL
+              metadata:(VPKAssetMetadata *)metadata
+               options:(VPKPlaybackOptions *)options
+            completion:(void (^)(VPKAssetMetadata * _Nullable metadata, NSError * _Nullable error))completion;
+
 /// 准备并播放。可与 prepare 共用同一套 session 逻辑。
 - (void)playWithURL:(NSURL *)URL options:(VPKPlaybackOptions *)options;
+/// 使用本组件此前为同一 URL 返回的 metadata 播放。
+- (void)playWithURL:(NSURL *)URL
+           metadata:(VPKAssetMetadata *)metadata
+            options:(VPKPlaybackOptions *)options;
 /// 暂停，冻结媒体时钟。
 - (void)pause;
 /// 恢复播放。

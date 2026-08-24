@@ -23,6 +23,7 @@ final class PlaybackDetailViewController: UIViewController {
     private var currentDidStart = false
     private var currentFailure: Error?
     private var currentFinishReason: FinishReason?
+    private var hasAutoPlayed = false
 
     init(fixture: VAPFixture) {
         self.fixture = fixture
@@ -43,6 +44,15 @@ final class PlaybackDetailViewController: UIViewController {
         bindDiagnostics()
         diagnostics.append("DEVICE", "\(UIDevice.current.model), iOS \(UIDevice.current.systemVersion)")
         diagnostics.append("ASSET", "\(fixture.shortIdentifier), \(fixture.formattedSize)")
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard !hasAutoPlayed else { return }
+        hasAutoPlayed = true
+        stateLabel.text = "PREPARING"
+        diagnostics.append("ACTION", "auto play on detail entry")
+        playerView.play(url: fixture.url, options: currentOptions())
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -141,7 +151,7 @@ final class PlaybackDetailViewController: UIViewController {
         name.textColor = .white
         name.adjustsFontSizeToFitWidth = true
         let detail = UILabel()
-        detail.text = "\(fixture.formattedSize) · 本地文件 · 点击下方控制进行测试"
+        detail.text = "\(fixture.formattedSize) · 本地文件 · 已自动播放，可用下方控制测试"
         detail.font = .systemFont(ofSize: 13)
         detail.textColor = UIColor(white: 0.62, alpha: 1)
         let stack = UIStackView(arrangedSubviews: [eyebrow, name, detail])
@@ -516,7 +526,7 @@ extension PlaybackDetailViewController: DynamicContentProvider {
     ) {
         diagnostics.append("DYNAMIC", "resolve \(tag), \(Int(source.slotSize.width))×\(Int(source.slotSize.height))")
         if tag.localizedCaseInsensitiveContains("text") || tag.localizedCaseInsensitiveContains("name") {
-            completion(.text("VAP Swift", attributes: TextAttributes(font: .boldSystemFont(ofSize: 24), color: .white)), nil)
+            completion(.textReplacement("VAP Swift"), nil)
         } else {
             completion(.image(Self.makeDynamicImage(size: source.slotSize, tag: tag)), nil)
         }
