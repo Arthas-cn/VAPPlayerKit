@@ -15,13 +15,20 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable UIFont *)fontForTag:(NSString *)tag;
 @end
 
+typedef NS_ENUM(NSInteger, VPKDynamicSourceKind) {
+    VPKDynamicSourceKindImage = 0,
+    VPKDynamicSourceKindText = 1
+};
+
 /// vapc 动态槽位描述。`slotSize` 是预缩放目标像素尺寸。
 @interface VPKSourceMetadata : NSObject
 
 @property (nonatomic, readonly, copy) NSString *tag;
 @property (nonatomic, readonly, assign) CGSize slotSize;
+@property (nonatomic, readonly, assign) VPKDynamicSourceKind kind;
 
 - (instancetype)initWithTag:(NSString *)tag slotSize:(CGSize)slotSize;
+- (instancetype)initWithTag:(NSString *)tag slotSize:(CGSize)slotSize kind:(VPKDynamicSourceKind)kind;
 
 @end
 

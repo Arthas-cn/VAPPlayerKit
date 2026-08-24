@@ -67,7 +67,11 @@ final class DynamicResolver {
     }
 
     private func resolveOne(_ source: VapcSource, timeout: TimeInterval, generation: UInt64) async throws -> ResolvedDynamicContent {
-        let metadata = SourceMetadata(tag: source.tag, slotSize: source.slotSize)
+        let metadata = SourceMetadata(
+            tag: source.tag,
+            slotSize: source.slotSize,
+            kind: source.kind == .text ? .text : .image
+        )
         let gate = DynamicResolutionGate()
         let gateID = UUID()
         activeGates[gateID] = gate

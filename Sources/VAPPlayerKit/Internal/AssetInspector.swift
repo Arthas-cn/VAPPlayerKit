@@ -103,7 +103,9 @@ final class AssetInspector {
             containsAudio: tracks.contains(where: { $0.mediaType == .audio }),
             codec: codec,
             vapVersion: vapc.version,
-            dynamicSources: vapc.sources.map { SourceMetadata(tag: $0.tag, slotSize: $0.slotSize) }
+            dynamicSources: vapc.sources.map {
+                SourceMetadata(tag: $0.tag, slotSize: $0.slotSize, kind: $0.kind == .text ? .text : .image)
+            }
         )
         metadata.playbackDocument = vapc
         metadata.sourceURL = url.standardizedFileURL

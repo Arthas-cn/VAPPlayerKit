@@ -130,6 +130,13 @@ final class VAPPlayerKitParserTests: XCTestCase {
         XCTAssertEqual(metadata.vapVersion, 2)
         XCTAssertEqual(metadata.frameCount, 96)
         XCTAssertEqual(metadata.dynamicSources.first?.tag, "avatar")
+        XCTAssertEqual(metadata.dynamicSources.first?.kind, .image)
+    }
+
+    func testInspectorExposesTextSourceKindForContentTag() async throws {
+        let metadata = try await AssetInspector().inspect(url: VAPFixture.url("13.mp4"))
+        XCTAssertEqual(metadata.dynamicSources.map(\.tag), ["avatar1", "avatar2", "content"])
+        XCTAssertEqual(metadata.dynamicSources.map(\.kind), [.image, .image, .text])
     }
 
     func testAllCommittedMediaFixturesInspectWithoutCrash() async throws {

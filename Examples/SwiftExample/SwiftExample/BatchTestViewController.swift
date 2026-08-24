@@ -192,7 +192,7 @@ final class BatchTestViewController: UIViewController, PlayerDelegate, DynamicCo
         source: SourceMetadata,
         completion: @escaping (DynamicContent?, Error?) -> Void
     ) {
-        if tag.localizedCaseInsensitiveContains("text") || tag.localizedCaseInsensitiveContains("name") {
+        if source.kind == .text {
             completion(.textReplacement("VAP Swift"), nil)
             return
         }

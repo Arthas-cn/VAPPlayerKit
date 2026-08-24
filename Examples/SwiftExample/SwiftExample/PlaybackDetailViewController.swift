@@ -524,40 +524,8 @@ extension PlaybackDetailViewController: DynamicContentProvider {
         source: SourceMetadata,
         completion: @escaping (DynamicContent?, Error?) -> Void
     ) {
-        diagnostics.append("DYNAMIC", "resolve \(tag), \(Int(source.slotSize.width))×\(Int(source.slotSize.height))")
-        if tag.localizedCaseInsensitiveContains("text") || tag.localizedCaseInsensitiveContains("name") {
-            completion(.textReplacement(GiftCatalog.replacementText), nil)
-        } else if let gift = GiftCatalog.randomImage() {
-            completion(.image(gift), nil)
-        } else {
-            completion(.image(Self.makeDynamicImage(size: source.slotSize, tag: tag)), nil)
-        }
-    }
-
-    private static func makeDynamicImage(size: CGSize, tag: String) -> UIImage {
-        let safeSize = CGSize(width: max(1, size.width), height: max(1, size.height))
-        return UIGraphicsImageRenderer(size: safeSize).image { context in
-            let colors = [
-                UIColor(red: 0.15, green: 0.55, blue: 0.95, alpha: 1).cgColor,
-                UIColor(red: 0.52, green: 0.22, blue: 0.92, alpha: 1).cgColor
-            ] as CFArray
-            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
-                context.cgContext.drawLinearGradient(
-                    gradient,
-                    start: .zero,
-                    end: CGPoint(x: safeSize.width, y: safeSize.height),
-                    options: []
-                )
-            }
-            let symbol = String(tag.prefix(1)).uppercased()
-            let font = UIFont.boldSystemFont(ofSize: min(safeSize.width, safeSize.height) * 0.42)
-            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.white]
-            let measured = symbol.size(withAttributes: attributes)
-            symbol.draw(
-                at: CGPoint(x: (safeSize.width - measured.width) / 2, y: (safeSize.height - measured.height) / 2),
-                withAttributes: attributes
-            )
-        }
+        diagnostics.append("DYNAMIC", "resolve \(tag) (\(source.kind == .text ? "txt" : "img")), \(Int(source.slotSize.width))×\(Int(source.slotSize.height))")
+        completion(GiftCatalog.content(for: source), nil)
     }
 }
 

@@ -301,24 +301,7 @@ private final class FixtureCell: UITableViewCell, PlayerDelegate, DynamicContent
         source: SourceMetadata,
         completion: @escaping (DynamicContent?, Error?) -> Void
     ) {
-        if tag.localizedCaseInsensitiveContains("text")
-            || tag.localizedCaseInsensitiveContains("name")
-            || tag.localizedCaseInsensitiveContains("content") {
-            completion(.textReplacement(GiftCatalog.replacementText), nil)
-            return
-        }
-        if let gift = GiftCatalog.randomImage() {
-            completion(.image(gift), nil)
-            return
-        }
-        let size = CGSize(width: max(1, source.slotSize.width), height: max(1, source.slotSize.height))
-        let image = UIGraphicsImageRenderer(size: size).image { context in
-            UIColor.systemTeal.setFill()
-            context.cgContext.fill(CGRect(origin: .zero, size: size))
-            UIColor.white.withAlphaComponent(0.25).setFill()
-            context.cgContext.fill(CGRect(x: 0, y: 0, width: size.width * 0.42, height: size.height))
-        }
-        completion(.image(image), nil)
+        completion(GiftCatalog.content(for: source), nil)
     }
 }
 

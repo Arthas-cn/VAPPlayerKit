@@ -32,6 +32,13 @@ public enum DynamicContent: @unchecked Sendable {
     case hidden
 }
 
+/// vapc `srcType`。宿主应按此决定返回文字还是图片，不要从 tag 字符串猜测。
+@objc(VPKDynamicSourceKind)
+public enum DynamicSourceKind: Int, Sendable {
+    case image = 0
+    case text = 1
+}
+
 /// vapc 里一个动态 source 槽位的只读描述。
 @objc(VPKSourceMetadata)
 public final class SourceMetadata: NSObject {
@@ -39,10 +46,17 @@ public final class SourceMetadata: NSObject {
     @objc public let tag: String
     /// 该槽位的像素尺寸，动态图必须按此预缩放。
     @objc public let slotSize: CGSize
+    /// vapc 声明的槽位类型：`img` 或 `txt`。
+    @objc public let kind: DynamicSourceKind
 
-    @objc public init(tag: String, slotSize: CGSize) {
+    @objc public convenience init(tag: String, slotSize: CGSize) {
+        self.init(tag: tag, slotSize: slotSize, kind: .image)
+    }
+
+    @objc public init(tag: String, slotSize: CGSize, kind: DynamicSourceKind) {
         self.tag = tag
         self.slotSize = slotSize
+        self.kind = kind
         super.init()
     }
 }
