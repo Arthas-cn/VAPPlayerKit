@@ -14,6 +14,7 @@
 		22A000000000000000000044 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 22A000000000000000000034 /* Assets.xcassets */; };
 		22A000000000000000000045 /* VAPPlayerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 22A000000000000000000051 /* VAPPlayerKit */; };
 		22A000000000000000000081 /* VAP in Resources */ = {isa = PBXBuildFile; fileRef = 22A000000000000000000080 /* VAP */; };
+		22A000000000000000000083 /* Gifts in Resources */ = {isa = PBXBuildFile; fileRef = 22A000000000000000000082 /* Gifts */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 		22A000000000000000000037 /* SceneDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SceneDelegate.h; sourceTree = "<group>"; };
 		22A000000000000000000038 /* ViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ViewController.h; sourceTree = "<group>"; };
 		22A000000000000000000080 /* VAP */ = {isa = PBXFileReference; lastKnownFileType = folder; name = VAP; path = ../../Tests/Fixtures/VAP; sourceTree = "<group>"; };
+		22A000000000000000000082 /* Gifts */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Gifts; path = ../Shared/Gifts; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -47,6 +49,7 @@
 			children = (
 				22A000000000000000000022 /* ObjectiveCExample */,
 				22A000000000000000000080 /* VAP */,
+				22A000000000000000000082 /* Gifts */,
 				22A000000000000000000021 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -140,6 +143,7 @@
 			files = (
 				22A000000000000000000044 /* Assets.xcassets in Resources */,
 				22A000000000000000000081 /* VAP in Resources */,
+				22A000000000000000000083 /* Gifts in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

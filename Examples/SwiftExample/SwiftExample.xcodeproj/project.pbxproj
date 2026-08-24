@@ -18,6 +18,8 @@
 		11A000000000000000000087 /* PlaybackDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11A000000000000000000084 /* PlaybackDiagnostics.swift */; };
 		11A000000000000000000090 /* SwiftExampleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11A000000000000000000088 /* SwiftExampleUITests.swift */; };
 		11A00000000000000000009C /* BatchTestViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11A00000000000000000009B /* BatchTestViewController.swift */; };
+		11A0000000000000000000A1 /* GiftCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11A0000000000000000000A0 /* GiftCatalog.swift */; };
+		11A0000000000000000000A3 /* Gifts in Resources */ = {isa = PBXBuildFile; fileRef = 11A0000000000000000000A2 /* Gifts */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -44,6 +46,8 @@
 		11A000000000000000000088 /* SwiftExampleUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftExampleUITests.swift; sourceTree = "<group>"; };
 		11A000000000000000000089 /* SwiftExampleUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SwiftExampleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		11A00000000000000000009B /* BatchTestViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchTestViewController.swift; sourceTree = "<group>"; };
+		11A0000000000000000000A0 /* GiftCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GiftCatalog.swift; sourceTree = "<group>"; };
+		11A0000000000000000000A2 /* Gifts */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Gifts; path = ../Shared/Gifts; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -74,6 +78,7 @@
 				11A000000000000000000022 /* SwiftExample */,
 				11A000000000000000000095 /* SwiftExampleUITests */,
 				11A000000000000000000080 /* VAP */,
+				11A0000000000000000000A2 /* Gifts */,
 				11A000000000000000000021 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -97,6 +102,7 @@
 				11A000000000000000000083 /* PlaybackDetailViewController.swift */,
 				11A000000000000000000084 /* PlaybackDiagnostics.swift */,
 				11A00000000000000000009B /* BatchTestViewController.swift */,
+				11A0000000000000000000A0 /* GiftCatalog.swift */,
 				11A000000000000000000033 /* Assets.xcassets */,
 				11A000000000000000000034 /* Info.plist */,
 			);
@@ -202,6 +208,7 @@
 			files = (
 				11A000000000000000000043 /* Assets.xcassets in Resources */,
 				11A000000000000000000081 /* VAP in Resources */,
+				11A0000000000000000000A3 /* Gifts in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -226,6 +233,7 @@
 				11A000000000000000000086 /* PlaybackDetailViewController.swift in Sources */,
 				11A000000000000000000087 /* PlaybackDiagnostics.swift in Sources */,
 				11A00000000000000000009C /* BatchTestViewController.swift in Sources */,
+				11A0000000000000000000A1 /* GiftCatalog.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

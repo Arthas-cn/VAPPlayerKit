@@ -112,6 +112,35 @@ final class VAPPlayerKitTests: XCTestCase {
     }
 
     @MainActor
+    func testDynamicImageResizePreservesTransparentBackground() async throws {
+        let stamp = try XCTUnwrap(makeTransparentStampImage())
+        let provider = FixedImageProviderStub(image: stamp)
+        let resolver = DynamicResolver()
+        resolver.provider = provider
+        let source = VapcSource(
+            id: "avatar",
+            kind: .image,
+            tag: "avatar",
+            slotSize: CGSize(width: 8, height: 8),
+            loadType: "local",
+            fitType: "fitXY",
+            color: nil,
+            style: nil
+        )
+        let snapshot = try await resolver.resolve(sources: [source], timeout: 1)
+        guard case .image(let image) = snapshot.contents[source.id] else {
+            return XCTFail("Image source was not materialized")
+        }
+        XCTAssertEqual(image.size, source.slotSize)
+        let pixels = try premultipliedPixels(image)
+        XCTAssertEqual(alpha(in: pixels, width: 8, x: 0, y: 0), 0)
+        XCTAssertEqual(alpha(in: pixels, width: 8, x: 7, y: 0), 0)
+        XCTAssertEqual(alpha(in: pixels, width: 8, x: 0, y: 7), 0)
+        XCTAssertEqual(alpha(in: pixels, width: 8, x: 7, y: 7), 0)
+        XCTAssertEqual(alpha(in: pixels, width: 8, x: 4, y: 4), 255)
+    }
+
+    @MainActor
     func testTextReplacementUsesSourceStyleAndFitsOriginalSlot() async throws {
         let resolver = DynamicResolver()
         let provider = ReplacementTextProviderStub()
@@ -442,6 +471,61 @@ private final class DynamicProviderStub: DynamicContentProvider {
             completion(.image(image), nil)
         }
     }
+}
+
+private final class FixedImageProviderStub: DynamicContentProvider {
+    let image: UIImage
+
+    init(image: UIImage) {
+        self.image = image
+    }
+
+    func resolve(
+        tag: String,
+        source: SourceMetadata,
+        completion: @escaping (DynamicContent?, Error?) -> Void
+    ) {
+        completion(.image(image), nil)
+    }
+}
+
+private func makeTransparentStampImage() -> UIImage? {
+    UIGraphicsBeginImageContextWithOptions(CGSize(width: 4, height: 4), false, 1)
+    UIColor.clear.setFill()
+    UIRectFill(CGRect(x: 0, y: 0, width: 4, height: 4))
+    UIColor.red.setFill()
+    UIRectFill(CGRect(x: 1, y: 1, width: 2, height: 2))
+    let image = UIGraphicsGetImageFromCurrentImageContext()
+    UIGraphicsEndImageContext()
+    return image
+}
+
+private func premultipliedPixels(_ image: UIImage) throws -> [UInt8] {
+    let cgImage = try XCTUnwrap(image.cgImage)
+    var bytes = [UInt8](repeating: 0, count: cgImage.width * cgImage.height * 4)
+    let bitmapInfo = CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
+    let created = bytes.withUnsafeMutableBytes { raw -> Bool in
+        guard let context = CGContext(
+            data: raw.baseAddress,
+            width: cgImage.width,
+            height: cgImage.height,
+            bitsPerComponent: 8,
+            bytesPerRow: cgImage.width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: bitmapInfo
+        ) else {
+            return false
+        }
+        context.clear(CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
+        return true
+    }
+    guard created else { throw PlaybackError.metalUnavailable }
+    return bytes
+}
+
+private func alpha(in pixels: [UInt8], width: Int, x: Int, y: Int) -> UInt8 {
+    pixels[(y * width + x) * 4 + 3]
 }
 
 private final class ReplacementTextProviderStub: DynamicContentProvider {

@@ -304,7 +304,11 @@ private final class FixtureCell: UITableViewCell, PlayerDelegate, DynamicContent
         if tag.localizedCaseInsensitiveContains("text")
             || tag.localizedCaseInsensitiveContains("name")
             || tag.localizedCaseInsensitiveContains("content") {
-            completion(.textReplacement("Preview"), nil)
+            completion(.textReplacement(GiftCatalog.replacementText), nil)
+            return
+        }
+        if let gift = GiftCatalog.randomImage() {
+            completion(.image(gift), nil)
             return
         }
         let size = CGSize(width: max(1, source.slotSize.width), height: max(1, source.slotSize.height))

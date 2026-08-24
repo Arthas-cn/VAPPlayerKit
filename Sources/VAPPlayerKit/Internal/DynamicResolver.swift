@@ -229,10 +229,7 @@ final class DynamicResolver {
         source: VapcSource,
         lineBreakMode: NSLineBreakMode = .byWordWrapping
     ) -> UIImage {
-        let format = UIGraphicsImageRendererFormat()
-        format.opaque = false
-        format.scale = 1
-        return UIGraphicsImageRenderer(size: source.slotSize, format: format).image { _ in
+        return renderPremultipliedImage(size: source.slotSize) {
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = .center
             paragraph.lineBreakMode = lineBreakMode
@@ -268,10 +265,7 @@ final class DynamicResolver {
     }
 
     private static func resized(_ image: UIImage, source: VapcSource) -> UIImage {
-        let format = UIGraphicsImageRendererFormat()
-        format.opaque = false
-        format.scale = 1
-        return UIGraphicsImageRenderer(size: source.slotSize, format: format).image { _ in
+        return renderPremultipliedImage(size: source.slotSize) {
             let target: CGRect
             if source.fitType == "centerFull", image.size.width > 0, image.size.height > 0 {
                 let scale = max(source.slotSize.width / image.size.width, source.slotSize.height / image.size.height)
@@ -285,8 +279,36 @@ final class DynamicResolver {
             } else {
                 target = CGRect(origin: .zero, size: source.slotSize)
             }
-            image.draw(in: target)
+            image.draw(in: target, blendMode: .normal, alpha: 1)
         }
+    }
+
+    /// Draw into an 8-bit premultiplied RGBA bitmap so transparent pixels stay
+    /// transparent. `UIGraphicsImageRenderer` can emit extended-range images
+    /// whose `cgImage` flattens alpha, which then shows up as an opaque slot.
+    private static func renderPremultipliedImage(size: CGSize, draw: () -> Void) -> UIImage {
+        let width = max(1, Int(size.width.rounded()))
+        let height = max(1, Int(size.height.rounded()))
+        let bitmapInfo = CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: bitmapInfo
+        ) else {
+            return UIImage()
+        }
+        context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: 1, y: -1)
+        UIGraphicsPushContext(context)
+        draw()
+        UIGraphicsPopContext()
+        guard let cgImage = context.makeImage() else { return UIImage() }
+        return UIImage(cgImage: cgImage, scale: 1, orientation: .up)
     }
 }
 

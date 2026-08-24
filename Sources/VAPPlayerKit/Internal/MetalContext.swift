@@ -13,6 +13,7 @@ struct MetalContextResources: @unchecked Sendable {
     let library: MTLLibrary
     let pipeline: MTLRenderPipelineState
     let attachmentPipeline: MTLRenderPipelineState
+    let attachmentPunchPipeline: MTLRenderPipelineState
     let textureCache: CVMetalTextureCache
     let sharedCommandQueue: MTLCommandQueue?
 }
@@ -62,7 +63,8 @@ final class MetalContext: @unchecked Sendable {
             let vertex = library.makeFunction(name: "vpk_vertex"),
             let fragment = library.makeFunction(name: "vpk_fragment"),
             let attachmentVertex = library.makeFunction(name: "vpk_attachment_vertex"),
-            let attachmentFragment = library.makeFunction(name: "vpk_attachment_fragment")
+            let attachmentFragment = library.makeFunction(name: "vpk_attachment_fragment"),
+            let attachmentPunchFragment = library.makeFunction(name: "vpk_attachment_punch_fragment")
         else {
             throw PlaybackError.metalUnavailable
         }
@@ -70,12 +72,20 @@ final class MetalContext: @unchecked Sendable {
         let pipeline = try Self.makePipeline(
             device: device,
             vertex: vertex,
-            fragment: fragment
+            fragment: fragment,
+            blending: .premultipliedOver
         )
         let attachmentPipeline = try Self.makePipeline(
             device: device,
             vertex: attachmentVertex,
-            fragment: attachmentFragment
+            fragment: attachmentFragment,
+            blending: .premultipliedOver
+        )
+        let attachmentPunchPipeline = try Self.makePipeline(
+            device: device,
+            vertex: attachmentVertex,
+            fragment: attachmentPunchFragment,
+            blending: .destinationTimesOneMinusSourceAlpha
         )
         var textureCache: CVMetalTextureCache?
         guard CVMetalTextureCacheCreate(nil, nil, device, nil, &textureCache) == kCVReturnSuccess,
@@ -100,6 +110,7 @@ final class MetalContext: @unchecked Sendable {
             library: library,
             pipeline: pipeline,
             attachmentPipeline: attachmentPipeline,
+            attachmentPunchPipeline: attachmentPunchPipeline,
             textureCache: textureCache,
             sharedCommandQueue: sharedCommandQueue
         )
@@ -202,20 +213,36 @@ final class MetalContext: @unchecked Sendable {
         lastTextureCacheFlushUptime = now
     }
 
+    private enum ColorBlending {
+        /// Video and overlay paths output premultiplied RGB/A.
+        case premultipliedOver
+        /// Multiply the destination by `(1 - src.a)` to punch the fusion placeholder.
+        case destinationTimesOneMinusSourceAlpha
+    }
+
     private static func makePipeline(
         device: MTLDevice,
         vertex: MTLFunction,
-        fragment: MTLFunction
+        fragment: MTLFunction,
+        blending: ColorBlending
     ) throws -> MTLRenderPipelineState {
         let descriptor = MTLRenderPipelineDescriptor()
         descriptor.vertexFunction = vertex
         descriptor.fragmentFunction = fragment
         descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
         descriptor.colorAttachments[0].isBlendingEnabled = true
-        descriptor.colorAttachments[0].sourceRGBBlendFactor = .one
-        descriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
-        descriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
-        descriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
+        switch blending {
+        case .premultipliedOver:
+            descriptor.colorAttachments[0].sourceRGBBlendFactor = .one
+            descriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
+            descriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
+            descriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
+        case .destinationTimesOneMinusSourceAlpha:
+            descriptor.colorAttachments[0].sourceRGBBlendFactor = .zero
+            descriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
+            descriptor.colorAttachments[0].sourceAlphaBlendFactor = .zero
+            descriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
+        }
         return try device.makeRenderPipelineState(descriptor: descriptor)
     }
 

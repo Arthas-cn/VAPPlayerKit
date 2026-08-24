@@ -56,6 +56,7 @@ final class MetalRenderer: @unchecked Sendable {
     private var library: MTLLibrary?
     private var pipeline: MTLRenderPipelineState?
     private var attachmentPipeline: MTLRenderPipelineState?
+    private var attachmentPunchPipeline: MTLRenderPipelineState?
     private var dynamicTextures: [String: MTLTexture] = [:]
     private weak var layer: CAMetalLayer?
     private var snapshot = RenderSnapshot(drawableSize: .zero, contentMode: .scaleAspectFit)
@@ -90,6 +91,7 @@ final class MetalRenderer: @unchecked Sendable {
                     self.library = resources.library
                     self.pipeline = resources.pipeline
                     self.attachmentPipeline = resources.attachmentPipeline
+                    self.attachmentPunchPipeline = resources.attachmentPunchPipeline
                     self.disposed = false
                     continuation.resume(returning: ())
                 } catch let error as PlaybackError {
@@ -156,11 +158,23 @@ final class MetalRenderer: @unchecked Sendable {
             throw PlaybackError.metalUnavailable
         }
         // DynamicResolver has already rasterized both provider images and
-        // replacement text through UIGraphicsImageRenderer, whose CGImage
-        // pixels are top-left oriented. Metal samples texture coordinates
-        // from the same origin, so do not apply the usual raw-CGImage
-        // CoreGraphics flip here; doing so mirrors every replacement asset.
+        // replacement text into a top-left RGBA bitmap. Metal samples texture
+        // coordinates from the same origin, so do not apply the usual
+        // raw-CGImage CoreGraphics flip here; doing so mirrors every
+        // replacement asset.
+        context.clear(CGRect(x: 0, y: 0, width: width, height: height))
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        if let pixels = context.data?.assumingMemoryBound(to: UInt8.self) {
+            let count = width * height
+            for index in 0..<count {
+                let offset = index * 4
+                if pixels[offset + 3] == 0 {
+                    pixels[offset] = 0
+                    pixels[offset + 1] = 0
+                    pixels[offset + 2] = 0
+                }
+            }
+        }
 
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .rgba8Unorm,
@@ -223,6 +237,7 @@ final class MetalRenderer: @unchecked Sendable {
             let commandQueue,
             let pipeline,
             let attachmentPipeline,
+            let attachmentPunchPipeline,
             let drawable = layer.nextDrawable()
         else { return false }
         let pixelBuffer = frame.pixelBuffer
@@ -270,7 +285,6 @@ final class MetalRenderer: @unchecked Sendable {
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         for attachment in vapc.frames[frame.index] ?? [] {
             guard let texture = dynamicTextures[attachment.sourceID] else { continue }
-            encoder.setRenderPipelineState(attachmentPipeline)
             var attachmentUniforms = AttachmentUniforms(
                 renderRect: normalized(attachment.renderRect, within: vapc.canvasSize),
                 maskRect: normalized(attachment.maskRect, within: vapc.encodedVideoSize),
@@ -288,6 +302,15 @@ final class MetalRenderer: @unchecked Sendable {
             )
             encoder.setFragmentTexture(yTexture, index: 0)
             encoder.setFragmentTexture(texture, index: 2)
+            // Image fusion slots are often an opaque black placeholder. Punch only
+            // those masks so transparent replacement pixels do not reveal it.
+            // Text must overlay the original banner; punching would cut a hole
+            // around the glyphs.
+            if attachment.kind == .image {
+                encoder.setRenderPipelineState(attachmentPunchPipeline)
+                encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+            }
+            encoder.setRenderPipelineState(attachmentPipeline)
             encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
         }
         encoder.endEncoding()
@@ -332,6 +355,7 @@ final class MetalRenderer: @unchecked Sendable {
         // renderer. It is flushed/released only with the shared context.
         pipeline = nil
         attachmentPipeline = nil
+        attachmentPunchPipeline = nil
         dynamicTextures.removeAll()
         library = nil
         commandQueue = nil

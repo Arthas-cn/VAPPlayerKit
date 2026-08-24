@@ -114,6 +114,18 @@ vertex VPKAttachmentVertexOut vpk_attachment_vertex(
     return out;
 }
 
+fragment float4 vpk_attachment_punch_fragment(
+    VPKAttachmentVertexOut in [[stage_in]],
+    texture2d<float> yTexture [[texture(0)]],
+    constant VPKAttachmentUniforms &uniforms [[buffer(0)]]
+) {
+    constexpr sampler linearSampler(address::clamp_to_edge, filter::linear);
+    float maskY = yTexture.sample(linearSampler, in.maskCoordinate).r;
+    float maskAlpha = saturate((maskY - (16.0 / 255.0)) * (255.0 / 219.0));
+    // Blend dest * (1 - src.a) punches the opaque video placeholder inside the mask.
+    return float4(0.0, 0.0, 0.0, maskAlpha);
+}
+
 fragment float4 vpk_attachment_fragment(
     VPKAttachmentVertexOut in [[stage_in]],
     texture2d<float> yTexture [[texture(0)]],
@@ -124,5 +136,6 @@ fragment float4 vpk_attachment_fragment(
     float4 source = sourceTexture.sample(linearSampler, in.sourceCoordinate);
     float maskY = yTexture.sample(linearSampler, in.maskCoordinate).r;
     float maskAlpha = saturate((maskY - (16.0 / 255.0)) * (255.0 / 219.0));
-    return float4(source.rgb * maskAlpha, source.a * maskAlpha);
+    float3 rgb = source.rgb * step(1.0 / 255.0, source.a);
+    return float4(rgb * maskAlpha, source.a * maskAlpha);
 }

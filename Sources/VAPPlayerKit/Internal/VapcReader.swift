@@ -19,6 +19,7 @@ struct VapcSource: Sendable {
 
 struct VapcAttachment: Sendable {
     let sourceID: String
+    let kind: VapcSource.Kind
     let zIndex: Int
     let renderRect: CGRect
     let maskRect: CGRect
@@ -123,6 +124,7 @@ final class VapcReader {
                 style: nonEmptyString(source["style"])
             )
         }
+        let sourceKindByID = Dictionary(uniqueKeysWithValues: sources.map { ($0.id, $0.kind) })
 
         let frameObjects = root["frame"] as? [[String: Any]] ?? []
         guard frameObjects.count <= maximumFrames else {
@@ -149,6 +151,7 @@ final class VapcReader {
                 let maskRect = try rect(item["mFrame"], name: "mFrame", within: videoSize)
                 return VapcAttachment(
                     sourceID: sourceID,
+                    kind: sourceKindByID[sourceID] ?? .image,
                     zIndex: (item["z"] as? NSNumber)?.intValue ?? 0,
                     renderRect: renderRect,
                     maskRect: maskRect,

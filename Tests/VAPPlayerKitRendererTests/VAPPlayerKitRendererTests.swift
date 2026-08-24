@@ -94,6 +94,22 @@ final class VAPPlayerKitRendererTests: XCTestCase {
         XCTAssertEqual(readTextureBytes(reference), readTextureBytes(custom))
     }
 
+    func testDynamicTextureUploadPreservesTransparentPixels() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { return }
+        let stamp = try XCTUnwrap(makeTransparentStampCGImage())
+        let texture = try MetalRenderer.makeDynamicTexture(cgImage: stamp, device: device)
+        let bytes = readTextureBytes(texture)
+        XCTAssertEqual(bytes[3], 0)
+        XCTAssertEqual(bytes[0], 0)
+        XCTAssertEqual(bytes[1], 0)
+        XCTAssertEqual(bytes[2], 0)
+        let center = ((2 * 4) + 2) * 4
+        XCTAssertEqual(bytes[center + 3], 255)
+        XCTAssertEqual(bytes[center], 255)
+        XCTAssertEqual(bytes[center + 1], 0)
+        XCTAssertEqual(bytes[center + 2], 0)
+    }
+
     @MainActor
     func testMetalRendererPrepareBenchmark() async throws {
         guard MTLCreateSystemDefaultDevice() != nil else { return }
@@ -255,6 +271,17 @@ private func readTextureBytes(_ texture: MTLTexture) -> [UInt8] {
         mipmapLevel: 0
     )
     return bytes
+}
+
+private func makeTransparentStampCGImage() -> CGImage? {
+    UIGraphicsBeginImageContextWithOptions(CGSize(width: 4, height: 4), false, 1)
+    UIColor.clear.setFill()
+    UIRectFill(CGRect(x: 0, y: 0, width: 4, height: 4))
+    UIColor.red.setFill()
+    UIRectFill(CGRect(x: 1, y: 1, width: 2, height: 2))
+    let image = UIGraphicsGetImageFromCurrentImageContext()
+    UIGraphicsEndImageContext()
+    return image?.cgImage
 }
 
 private final class SendablePixelBuffers: @unchecked Sendable {
