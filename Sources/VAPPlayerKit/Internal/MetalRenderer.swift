@@ -24,8 +24,9 @@ private struct AttachmentUniforms {
     var padding = SIMD3<UInt32>(repeating: 0)
 }
 
-/// Resources whose lifetime must extend through GPU completion, but must be
-/// released before the renderer tears down its CVMetalTextureCache.
+/// Resources whose lifetime must extend through GPU completion. The shared
+/// texture cache is owned by `MetalContext`; these references are released
+/// before the context is allowed to perform an idle flush.
 private final class InFlightFrameResources: @unchecked Sendable {
     private var frame: DecodedFrame?
     private var yReference: CVMetalTexture?
@@ -47,6 +48,7 @@ private final class InFlightFrameResources: @unchecked Sendable {
 /// 将 NV12 pixel buffer 中的 packed RGB/Alpha 区域合成到 `CAMetalLayer`。
 /// Mutable state is confined to `renderQueue`; MainActor only hands in immutable snapshots.
 final class MetalRenderer: @unchecked Sendable {
+    private let context: MetalContext
     private let renderQueue = DispatchQueue(label: "com.vapplayerkit.renderer", qos: .userInteractive)
     private let inFlight = DispatchGroup()
     private var device: MTLDevice?
@@ -54,11 +56,14 @@ final class MetalRenderer: @unchecked Sendable {
     private var library: MTLLibrary?
     private var pipeline: MTLRenderPipelineState?
     private var attachmentPipeline: MTLRenderPipelineState?
-    private var textureCache: CVMetalTextureCache?
     private var dynamicTextures: [String: MTLTexture] = [:]
     private weak var layer: CAMetalLayer?
     private var snapshot = RenderSnapshot(drawableSize: .zero, contentMode: .scaleAspectFit)
     private var disposed = false
+
+    init(context: MetalContext = .shared) {
+        self.context = context
+    }
 
     /// layer 的 UIKit 属性由调用方在主线程准备；shader 与 pipeline 在 render queue 编译。
     @MainActor
@@ -79,48 +84,12 @@ final class MetalRenderer: @unchecked Sendable {
                     return
                 }
                 do {
-                    guard let commandQueue = device.makeCommandQueue() else {
-                        throw PlaybackError.metalUnavailable
-                    }
-                    let library = try ShaderLibrary.make(device: device)
-                    guard
-                        let vertex = library.makeFunction(name: "vpk_vertex"),
-                        let fragment = library.makeFunction(name: "vpk_fragment"),
-                        let attachmentVertex = library.makeFunction(name: "vpk_attachment_vertex"),
-                        let attachmentFragment = library.makeFunction(name: "vpk_attachment_fragment")
-                    else {
-                        throw PlaybackError.metalUnavailable
-                    }
-                    let descriptor = MTLRenderPipelineDescriptor()
-                    descriptor.vertexFunction = vertex
-                    descriptor.fragmentFunction = fragment
-                    descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
-                    descriptor.colorAttachments[0].isBlendingEnabled = true
-                    descriptor.colorAttachments[0].sourceRGBBlendFactor = .one
-                    descriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
-                    descriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
-                    descriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
-                    let pipeline = try device.makeRenderPipelineState(descriptor: descriptor)
-                    let attachmentDescriptor = MTLRenderPipelineDescriptor()
-                    attachmentDescriptor.vertexFunction = attachmentVertex
-                    attachmentDescriptor.fragmentFunction = attachmentFragment
-                    attachmentDescriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
-                    attachmentDescriptor.colorAttachments[0].isBlendingEnabled = true
-                    attachmentDescriptor.colorAttachments[0].sourceRGBBlendFactor = .one
-                    attachmentDescriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
-                    attachmentDescriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
-                    attachmentDescriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
-                    let attachmentPipeline = try device.makeRenderPipelineState(descriptor: attachmentDescriptor)
-                    var cache: CVMetalTextureCache?
-                    guard CVMetalTextureCacheCreate(nil, nil, device, nil, &cache) == kCVReturnSuccess, let cache else {
-                        throw PlaybackError.metalUnavailable
-                    }
-                    self.device = device
-                    self.commandQueue = commandQueue
-                    self.library = library
-                    self.pipeline = pipeline
-                    self.attachmentPipeline = attachmentPipeline
-                    self.textureCache = cache
+                    let resources = try self.context.prepare(device: device)
+                    self.device = resources.device
+                    self.commandQueue = try self.context.makeCommandQueue(for: resources)
+                    self.library = resources.library
+                    self.pipeline = resources.pipeline
+                    self.attachmentPipeline = resources.attachmentPipeline
                     self.disposed = false
                     continuation.resume(returning: ())
                 } catch let error as PlaybackError {
@@ -152,7 +121,7 @@ final class MetalRenderer: @unchecked Sendable {
                             throw PlaybackError.metalUnavailable
                         }
                         totalBytes += bytes
-                        textures[id] = try self.makeDynamicTexture(cgImage: cgImage, device: device)
+                        textures[id] = try Self.makeDynamicTexture(cgImage: cgImage, device: device)
                     }
                     self.dynamicTextures = textures
                     continuation.resume(returning: ())
@@ -165,7 +134,7 @@ final class MetalRenderer: @unchecked Sendable {
 
     /// Normalize UIKit / TextKit output to a predictable top-left RGBA8 surface before upload.
     /// MTKTextureLoader rejects some device-only extended-color CGImage formats.
-    private func makeDynamicTexture(cgImage: CGImage, device: MTLDevice) throws -> MTLTexture {
+    static func makeDynamicTexture(cgImage: CGImage, device: MTLDevice) throws -> MTLTexture {
         let width = cgImage.width
         let height = cgImage.height
         guard
@@ -186,8 +155,11 @@ final class MetalRenderer: @unchecked Sendable {
         ), let bytes = context.data else {
             throw PlaybackError.metalUnavailable
         }
-        context.translateBy(x: 0, y: CGFloat(height))
-        context.scaleBy(x: 1, y: -1)
+        // DynamicResolver has already rasterized both provider images and
+        // replacement text through UIGraphicsImageRenderer, whose CGImage
+        // pixels are top-left oriented. Metal samples texture coordinates
+        // from the same origin, so do not apply the usual raw-CGImage
+        // CoreGraphics flip here; doing so mirrors every replacement asset.
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
 
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
@@ -251,7 +223,6 @@ final class MetalRenderer: @unchecked Sendable {
             let commandQueue,
             let pipeline,
             let attachmentPipeline,
-            let textureCache,
             let drawable = layer.nextDrawable()
         else { return false }
         let pixelBuffer = frame.pixelBuffer
@@ -259,29 +230,18 @@ final class MetalRenderer: @unchecked Sendable {
             throw PlaybackError.decoderFailed(osStatus: -1)
         }
 
-        var yReference: CVMetalTexture?
-        var uvReference: CVMetalTexture?
-        let yStatus = CVMetalTextureCacheCreateTextureFromImage(
-            nil, textureCache, pixelBuffer, nil, .r8Unorm,
-            CVPixelBufferGetWidthOfPlane(pixelBuffer, 0),
-            CVPixelBufferGetHeightOfPlane(pixelBuffer, 0), 0, &yReference
-        )
-        let uvStatus = CVMetalTextureCacheCreateTextureFromImage(
-            nil, textureCache, pixelBuffer, nil, .rg8Unorm,
-            CVPixelBufferGetWidthOfPlane(pixelBuffer, 1),
-            CVPixelBufferGetHeightOfPlane(pixelBuffer, 1), 1, &uvReference
-        )
+        let planeTextures = try context.makePlaneTexturesAndBeginSubmission(for: pixelBuffer)
+        let yReference = planeTextures.y
+        let uvReference = planeTextures.uv
         guard
-            yStatus == kCVReturnSuccess,
-            uvStatus == kCVReturnSuccess,
-            let yReference,
-            let uvReference,
             let yTexture = CVMetalTextureGetTexture(yReference),
             let uvTexture = CVMetalTextureGetTexture(uvReference)
         else {
-            throw PlaybackError.decoderFailed(osStatus: Int32(yStatus != kCVReturnSuccess ? yStatus : uvStatus))
+            context.cancelTextureSubmission()
+            throw PlaybackError.decoderFailed(osStatus: -1)
         }
         guard let commandBuffer = commandQueue.makeCommandBuffer() else {
+            context.cancelTextureSubmission()
             throw PlaybackError.metalUnavailable
         }
         let pass = MTLRenderPassDescriptor()
@@ -290,6 +250,7 @@ final class MetalRenderer: @unchecked Sendable {
         pass.colorAttachments[0].storeAction = .store
         pass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 0)
         guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: pass) else {
+            context.cancelTextureSubmission()
             throw PlaybackError.metalUnavailable
         }
         encoder.setRenderPipelineState(pipeline)
@@ -337,16 +298,17 @@ final class MetalRenderer: @unchecked Sendable {
             uvReference: uvReference
         )
         inFlight.enter()
-        commandBuffer.addCompletedHandler { [inFlight, resources] commandBuffer in
+        commandBuffer.addCompletedHandler { [context, inFlight, resources] commandBuffer in
             if commandBuffer.status == .completed {
                 completion(.success(true))
             } else {
                 completion(.failure(.metalUnavailable))
             }
             // `DispatchGroup.notify` may run as soon as leave() is called.
-            // Explicitly drop CVMetalTexture references first so cache teardown
-            // cannot race their finalizers on Metal's completion queue.
+            // Drop CVMetalTexture references before decrementing the context's
+            // active count so an idle cache flush cannot race finalizers.
             resources.releaseReferences()
+            context.endTextureSubmission()
             inFlight.leave()
         }
         commandBuffer.commit()
@@ -356,8 +318,7 @@ final class MetalRenderer: @unchecked Sendable {
     func dispose() {
         // Keep the renderer alive until every submitted command buffer has
         // completed and its CVMetalTexture references have been released.
-        // The strong captures prevent PlaybackSession deinit from releasing
-        // textureCache while GPU completion handlers are still active.
+        // The context owns the shared cache; this only tears down session state.
         renderQueue.async { [self] in
             self.disposed = true
             self.inFlight.notify(queue: self.renderQueue) { [self] in
@@ -367,8 +328,8 @@ final class MetalRenderer: @unchecked Sendable {
     }
 
     private func releaseResources() {
-        if let textureCache { CVMetalTextureCacheFlush(textureCache, 0) }
-        textureCache = nil
+        // The texture cache is package-scoped and may be in use by another
+        // renderer. It is flushed/released only with the shared context.
         pipeline = nil
         attachmentPipeline = nil
         dynamicTextures.removeAll()
@@ -376,6 +337,7 @@ final class MetalRenderer: @unchecked Sendable {
         commandQueue = nil
         device = nil
         layer = nil
+        context.flushTextureCacheIfIdle()
     }
 
     static func viewport(drawableSize: CGSize, canvasSize: CGSize, contentMode: UIView.ContentMode) -> MTLViewport {

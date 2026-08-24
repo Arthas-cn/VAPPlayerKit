@@ -118,3 +118,100 @@ final class SwiftExampleUITests: XCTestCase {
         return "state=\(state), console=\(console)"
     }
 }
+
+final class MetalBenchmarkUITests: XCTestCase {
+    func testSharedCommandQueueOnDevice() throws {
+        try runBenchmark(policy: "shared")
+    }
+
+    func testPerRendererCommandQueueOnDevice() throws {
+        try runBenchmark(policy: "perRenderer")
+    }
+
+    private func runBenchmark(policy: String) throws {
+        let runCount = 3
+        var concurrentDurations: [Double] = []
+        var renderedTotals: [Int] = []
+        var droppedTotals: [Int] = []
+        for run in 1...runCount {
+            let app = XCUIApplication()
+            app.launchArguments = [
+                "--vap-ui-testing",
+                "--vap-metal-benchmark",
+                "-vap-metal-command-queue-policy=\(policy)"
+            ]
+            app.launch()
+            let result = app.staticTexts["metal.benchmark"]
+            XCTAssertTrue(result.waitForExistence(timeout: 30))
+            let deadline = Date().addingTimeInterval(60)
+            while Date() < deadline, result.label.contains("RUNNING") {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            }
+            let label = result.label
+            print("METAL_DEVICE_BENCHMARK_UI policy=\(policy) run=\(run) result=\(label.replacingOccurrences(of: "\n", with: " "))")
+            XCTAssertFalse(label.contains("FAILED"), label)
+            XCTAssertTrue(label.contains("status=PASS"), label)
+            XCTAssertTrue(label.contains("sequential_ms="), label)
+            XCTAssertTrue(label.contains("concurrent_ms="), label)
+
+            let concurrent = metric(label: label, key: "concurrent_ms").flatMap(Double.init)
+            let rendered = metric(label: label, key: "rendered").flatMap(Int.init)
+            let dropped = metric(label: label, key: "dropped").flatMap(Int.init)
+            concurrentDurations.append(try XCTUnwrap(concurrent, label))
+            renderedTotals.append(try XCTUnwrap(rendered, label))
+            droppedTotals.append(try XCTUnwrap(dropped, label))
+            assertPerPlayerFloor(in: label)
+            app.terminate()
+        }
+
+        let sorted = concurrentDurations.sorted()
+        let median = sorted[sorted.count / 2]
+        let range = (sorted.first ?? 0)...(sorted.last ?? 0)
+        let summary = String(
+            format: "METAL_DEVICE_BENCHMARK_SUMMARY policy=%@ runs=%d concurrent_ms_median=%.2f concurrent_ms_range=%.2f-%.2f rendered_range=%d-%d dropped_range=%d-%d",
+            policy,
+            runCount,
+            median,
+            range.lowerBound,
+            range.upperBound,
+            renderedTotals.min() ?? 0,
+            renderedTotals.max() ?? 0,
+            droppedTotals.min() ?? 0,
+            droppedTotals.max() ?? 0
+        )
+        print(summary)
+        XCTContext.runActivity(named: "Metal benchmark summary") { activity in
+            activity.add(XCTAttachment(string: summary))
+        }
+    }
+
+    private func metric(label: String, key: String) -> String? {
+        guard let range = label.range(of: "\(key)=") else { return nil }
+        return label[range.upperBound...]
+            .split(whereSeparator: { $0 == " " || $0 == "\n" })
+            .first
+            .map(String.init)
+    }
+
+    private func assertPerPlayerFloor(in label: String) {
+        let perPlayer: String
+        if let range = label.range(of: "per_player=") {
+            perPlayer = String(label[range.upperBound...]).components(separatedBy: " status=").first ?? ""
+        } else {
+            perPlayer = ""
+        }
+        let entries = perPlayer.split(separator: ";")
+        XCTAssertEqual(entries.count, 12, label)
+        for entry in entries {
+            let fields = entry.split(separator: ":", maxSplits: 1).last ?? entry
+            let values = fields.split(separator: ",").reduce(into: [String: String]()) { result, field in
+                let pair = field.split(separator: "=", maxSplits: 1)
+                if pair.count == 2 { result[String(pair[0])] = String(pair[1]) }
+            }
+            XCTAssertGreaterThanOrEqual(Int(values["rendered"] ?? "0") ?? 0, 5, String(entry))
+            XCTAssertGreaterThan(Int(values["second_half"] ?? "0") ?? 0, 0, String(entry))
+            XCTAssertEqual(Int(values["failures"] ?? "-1"), 0, String(entry))
+            XCTAssertEqual(Int(values["drawable_failures"] ?? "-1"), 0, String(entry))
+        }
+    }
+}

@@ -383,13 +383,13 @@ MetalRenderer 接收：
 
 ### 6.2 GPU 资源生命周期
 
-- MTLDevice、MTLCommandQueue、CVMetalTextureCache 和 pipeline cache 可在 package 内共享。
+- `MetalContext` 在 package 内线程安全共享 MTLDevice、MTLLibrary、两条 render pipeline、CVMetalTextureCache 和默认 MTLCommandQueue；Y/UV texture 创建、cache flush 与 in-flight 计数共用一把锁。renderer 只保留当前 session 的动态纹理、snapshot、drawable 与 in-flight references。独立 command queue 仅作为诊断对照策略。
 - MTLTexture、pixel buffer、dynamic snapshot 和 per-frame buffer 属于当前 render submission。
 - command buffer 完成前，相关 CPU/GPU 资源必须保持有效。
 - attachment 的 vertex buffer 和参数 buffer 使用预分配 ring allocator 或 sub-allocation。
 - 禁止每帧 malloc、创建新的 MTLBuffer 或编译 shader pipeline。
 - nextDrawable 为 nil、drawableSize 为零、Metal device 不可用时进入可恢复状态。
-- renderer dispose 必须等待或关联 command buffer completion。
+- renderer dispose 必须等待或关联 command buffer completion；只能通过 `MetalContext` 在无 in-flight submission 时做节流 flush，不能直接 flush 或释放仍被其他 session 使用的共享 texture cache。
 - render queue 不能直接读取 UIView 的 bounds、window、traitCollection 或其他 UIKit 可变状态。
 
 ### 6.3 Shader 与 SPM 资源
@@ -728,6 +728,7 @@ VAPPlayerKit/
 │   │   │   ├── FrameRingBuffer.swift
 │   │   │   ├── MediaClock.swift
 │   │   │   ├── FramePacer.swift
+│   │   │   ├── MetalContext.swift
 │   │   │   ├── MetalRenderer.swift
 │   │   │   ├── DynamicResolver.swift
 │   │   │   └── AudioCoordinator.swift

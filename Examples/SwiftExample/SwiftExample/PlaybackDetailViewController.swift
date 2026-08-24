@@ -526,7 +526,7 @@ extension PlaybackDetailViewController: DynamicContentProvider {
     ) {
         diagnostics.append("DYNAMIC", "resolve \(tag), \(Int(source.slotSize.width))×\(Int(source.slotSize.height))")
         if tag.localizedCaseInsensitiveContains("text") || tag.localizedCaseInsensitiveContains("name") {
-            completion(.textReplacement("VAP Swift"), nil)
+            completion(.textReplacement("VAP Swift Test"), nil)
         } else {
             completion(.image(Self.makeDynamicImage(size: source.slotSize, tag: tag)), nil)
         }

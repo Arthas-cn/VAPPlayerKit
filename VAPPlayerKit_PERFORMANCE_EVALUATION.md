@@ -4,7 +4,7 @@
 
 当前实现已具备可投入常规透明动效场景的基础：媒体 inspection 和视频解码不占用 MainActor，解码帧数量有固定上限，渲染使用 Metal，播放生命周期由独立 session 和 token 隔离，动态纹理有明确内存预算，停止后能够自动验证核心资源释放。
 
-它还不是“完成所有性能验收”的版本。最值得优先处理的是跨 session 共享 Metal pipeline/texture cache、减少列表多实例同时 prepare 的峰值，以及用 Instruments 和长循环真机测试补足 CPU、GPU、峰值内存与能耗数据。本文区分已经由代码/自动测试证明的事实和仍需实测的目标，不用模拟器结果代替真机性能结论。
+它还不是“完成所有性能验收”的版本。跨 session 的 MetalContext 共享已经落地并经过模拟器与 iPhone 12 多实例实测；剩余优先项是减少列表多实例同时 prepare 的峰值，以及用 Instruments 和长循环真机测试补足 CPU、GPU、峰值内存与能耗数据。本文区分已经由代码/自动测试证明的事实和仍需实测的目标，不用模拟器结果代替真机性能结论。
 
 ## 2. 当前播放路径
 
@@ -44,7 +44,8 @@
 - 视频保持 NV12，在 shader 内完成 YUV 转 RGB、Alpha 解包和动态 attachment 合成，避免先转换整帧 RGBA 的额外 CPU 拷贝。
 - `CAMetalLayer.framebufferOnly = true`，渲染目标保持最小用途。
 - `InFlightFrameResources` 持有 pixel buffer 和 `CVMetalTexture`，直到 command buffer completion 后才释放。
-- renderer dispose 等待已提交 command buffer，随后清空动态纹理、pipeline、command queue 和 `CVMetalTextureCache`。
+- `MetalContext` 在 package 级线程安全地缓存 device、shader library、两条 pipeline 和 `CVMetalTextureCache`；Y/UV texture 创建与 cache flush 都经过同一把锁。renderer dispose 等待已提交 command buffer、释放本 session 引用后才请求 idle flush；当任一 renderer 仍有 in-flight submission 时不会触碰共享 cache，并按 60 个完成 submission 或 2 秒节流清理。
+- command queue 默认按 package 共享。独立 queue 仍保留为诊断/对照策略，便于在不同 GPU 上复测，不影响 renderer 的 per-session 状态隔离。
 
 ### 3.4 已有可观测性
 
@@ -60,7 +61,16 @@
 - 真实 fixture 完成 prepare、启动解码并进入播放时间线后执行 stop，弱引用自动确认 `PlaybackSession`、`AVAssetReaderFrameSource`、`MetalRenderer` 均释放。
 - `PlayerView` 注册应用生命周期通知后销毁，弱引用自动确认通知闭包不反向持有播放器。
 - SwiftExample 与 ObjectiveCExample 在 iOS 模拟器目标编译通过。
-- 完整 package 单元测试在 iOS 模拟器通过 47/47；SwiftExample UI 测试在连接的真机通过 3/3，覆盖行内自动预览、详情自动播放和全素材批量播放，后者确实为每个合法素材保留 `min(1 秒, 实际时长)`。
+- 完整 package 单元测试在 iOS 模拟器通过 50/50；SwiftExample 的原 3 项 smoke/batch UI tests 与新增 2 项 queue UI tests 均已在连接的真机通过（分别记录，合计 5/5 test case 证据）。每种策略的基准 test case 都启动 3 个独立 app 进程；每次 2 秒窗口要求 12 个 `PlayerView` 各至少渲染 5 帧、后 1 秒仍有新增帧、无 session failure 和 drawable failure。
+- MetalContext 对照压测（12 renderer）：每种策略的 sequential 与 concurrent 两轮各使用 12 renderer；模拟器共享策略只构建 1 份 context/1 个 queue，独立策略只构建 1 份 context 但两轮合计创建 24 个 queue。并发 prepare 计时是在同一 context 已由 sequential pass warm-up 后测量，不代表冷启动；模拟器曾测得 shared `0.57 ms`、per-renderer `4.15 ms`。
+- iPhone 12（iOS 26.5.2）最终真机 queue 基准为每策略 3 次 fresh-process；每次都是 12 个播放器、2 秒窗口、每 player 至少 5 帧且后 1 秒仍有新增帧，并通过 `status=PASS`（两种策略各 3/3）。最终摘要如下：
+
+  | 策略 | concurrent prepare median | range（3 次） | rendered 总量 range | dropped 总量 range | session/drawable failure |
+  | --- | ---: | ---: | ---: | ---: | ---: |
+  | shared | 41.20 ms | 40.61–45.95 ms | 547–561 | 4–8 | 0 / 0 |
+  | perRenderer | 40.69 ms | 39.86–45.26 ms | 548–562 | 1–6 | 0 / 0 |
+
+- 选择 shared 作为生产默认：它把 12 renderer 的 command queue 从 24 个降为 1 个，且最终真机 per-player floor、渲染总量与 perRenderer 基本相当；本轮 perRenderer 的 dropped 范围较低，但时延/帧数区间重叠，3 次运行不足以宣称稳定的性能优劣。需要优先压低丢帧时可用 `-vap-metal-command-queue-policy=perRenderer` 做诊断/场景化覆盖；后续应以更多设备和 Metal System Trace 决定是否切换默认。
 
 资源释放测试能发现确定性 retain cycle，但不能替代 Allocations/Leaks：系统媒体与 Metal 驱动可能保留缓存，进程 RSS 也可能不会立即下降。因此“对象可释放”和“长循环没有常驻内存增长”必须分别验收。
 
@@ -74,7 +84,7 @@
 
 ### P1：高收益实现优化
 
-1. **Metal 对象按 session 重建。** 当前每个 `MetalRenderer.prepare` 都创建 device、command queue、shader library、两条 pipeline 和 `CVMetalTextureCache`。可引入线程安全的 package 级 `MetalContext`，共享 device、library、pipeline state 和 texture cache；command queue 是否共享应在多实例压力测试后决定。
+1. **Metal 对象按 session 重建。** 已由线程安全的 package 级 `MetalContext` 解决：device、library、pipeline state、texture cache 和默认 command queue 跨 session 共享；12 实例模拟器/真机压力数据见第 4 节。后续仍可用 Metal System Trace 补充不同 GPU 家族的 command buffer 时延曲线。
 2. **列表多播放器没有全局并发预算。** 示例只限制为可见 cell，但快速滚动仍可能同时解析、解码并创建多个 renderer。组件可增加可选 session scheduler，按可见性/优先级限制并发 prepare 与 decode；宿主也应在 `didEndDisplaying` 立即 stop。
 3. **inspection 仍映射整个文件。** `Data(mappedIfSafe:)` 通常是虚拟内存映射，但仍扫描顶层 box，并用 `subdata` 提取 vapc。可改为 `FileHandle`/区域映射仅读 box header 和 vapc payload，降低超大文件地址空间与页错误压力。
 4. **动态 timeout Task 不会在成功后立即取消。** gate 保证不会重复完成，但每个 tag 的 sleep task 最长存活 8 秒。可保存 timeout task 并在 gate 首次完成时 cancel，减少大量动态 source 同时 prepare 时的短期任务数量。
@@ -102,7 +112,7 @@
 ## 7. 推荐执行顺序
 
 1. 先完成 P0 真机基线，保存 Instruments trace 和原始指标。
-2. 实现共享 `MetalContext`，以同一素材矩阵做前后对照。
+2. 已完成共享 `MetalContext`；后续只需在新 GPU 家族上复用同一素材矩阵确认 command queue 策略。
 3. 增加多实例 scheduler，在列表 1/4/8 实例下验证吞吐、首帧和滚动流畅度。
 4. 将 inspection 改为区间读取，并以大文件 prepare 数据验证收益。
 5. 最后评估 CoreText 后台文字栅格化和自定义 VideoToolbox backend；没有测量瓶颈时不增加复杂度。
