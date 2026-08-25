@@ -44,6 +44,20 @@ final class AudioCoordinator {
         player?.play()
     }
 
+    /// 解码器因前后台切换重建时，把内嵌音轨定位到视频冻结的媒体时间。
+    func seek(to seconds: TimeInterval, completion: @MainActor @escaping () -> Void) {
+        guard mode == .embedded, let player else {
+            completion()
+            return
+        }
+        player.pause()
+        let safeSeconds = seconds.isFinite ? max(0, seconds) : 0
+        let time = CMTime(seconds: safeSeconds, preferredTimescale: 600)
+        player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { _ in
+            Task { @MainActor in completion() }
+        }
+    }
+
     /// 循环边界把内嵌音轨 seek 回零。无音频时立即 completion，不阻塞视频。
     func rewind(completion: @MainActor @escaping () -> Void) {
         guard mode == .embedded, let player else {

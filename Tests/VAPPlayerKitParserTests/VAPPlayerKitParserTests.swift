@@ -184,10 +184,16 @@ final class VAPPlayerKitParserTests: XCTestCase {
             let decodedFrames = FrameCountRecorder()
             let finished = expectation(description: "decoder finished: \(url.lastPathComponent)")
             var result: Result<Void, PlaybackError>?
-            source.startProducing(to: buffer, token: .make(), didProduce: { _ in
-                _ = buffer.dequeue()
-                decodedFrames.increment()
-            }) {
+            source.startProducing(
+                to: buffer,
+                token: .make(),
+                startTime: .zero,
+                frameIndexOffset: 0,
+                didProduce: { _ in
+                    _ = buffer.dequeue()
+                    decodedFrames.increment()
+                }
+            ) {
                 result = $0
                 finished.fulfill()
             }
@@ -219,7 +225,13 @@ final class VAPPlayerKitParserTests: XCTestCase {
         let buffer = FrameRingBuffer(capacity: 120)
         let finished = expectation(description: "decoder finished")
         var result: Result<Void, PlaybackError>?
-        source.startProducing(to: buffer, token: .make(), didProduce: { _ in }) {
+        source.startProducing(
+            to: buffer,
+            token: .make(),
+            startTime: .zero,
+            frameIndexOffset: 0,
+            didProduce: { _ in }
+        ) {
             result = $0
             finished.fulfill()
         }

@@ -53,6 +53,57 @@ final class SwiftExampleUITests: XCTestCase {
         XCTAssertGreaterThan(rendered, 0, "Lifecycle test did not submit a successful rendered frame.")
     }
 
+    func testPlaybackRecoversAfterRepeatedBackgroundForeground() throws {
+        try openDefaultPlayback()
+        tapSegment("detail.loopCount", title: "∞")
+        tapControl("detail.play")
+        XCTAssertTrue(waitForState(["PLAYING"], timeout: 12), detailDiagnostics())
+
+        for cycle in 1...3 {
+            let renderedBeforeBackground = renderedFrameCount()
+            XCUIDevice.shared.press(.home)
+            runLoop(for: 0.8)
+            app.activate()
+
+            XCTAssertTrue(
+                waitForState(["PLAYING"], timeout: 8),
+                "Cycle \(cycle) did not resume playback. \(detailDiagnostics())"
+            )
+            XCTAssertTrue(
+                waitForRenderedFrame(after: renderedBeforeBackground, timeout: 8),
+                "Cycle \(cycle) did not render after foreground. \(detailDiagnostics())"
+            )
+            XCTAssertFalse(
+                detailDiagnostics().contains("FAILED") || detailDiagnostics().contains(" ERROR "),
+                "Background/foreground recovery reported a playback error. (detailDiagnostics())"
+            )
+        }
+
+        XCTAssertTrue(
+            waitForConsole(containing: "decoder rebuilt", timeout: 5),
+            "The foreground path did not rebuild the decoder. (detailDiagnostics())"
+        )
+    }
+
+    func testBackgroundStopPolicyFinishesWithoutDecoderFailure() throws {
+        try openDefaultPlayback()
+        tapSegment("detail.loopCount", title: "∞")
+        tapSegment("detail.backgroundPolicy", title: "停止")
+        tapControl("detail.play")
+        XCTAssertTrue(waitForState(["PLAYING"], timeout: 12), detailDiagnostics())
+
+        XCUIDevice.shared.press(.home)
+        runLoop(for: 0.8)
+        app.activate()
+
+        XCTAssertTrue(
+            waitForState(["FINISHED"], timeout: 8),
+            "Stop background policy did not finish the session. (detailDiagnostics())"
+        )
+        XCTAssertFalse(detailDiagnostics().contains("FAILED"), detailDiagnostics())
+        XCTAssertFalse(detailDiagnostics().contains(" ERROR "), detailDiagnostics())
+    }
+
     func testAnimatedSlotScenePlaysOneMP4() throws {
         let list = app.tables["catalog.list"]
         XCTAssertTrue(list.waitForExistence(timeout: 10))
@@ -102,6 +153,27 @@ final class SwiftExampleUITests: XCTestCase {
         button.tap()
     }
 
+    private func tapSegment(_ identifier: String, title: String) {
+        let control = app.segmentedControls[identifier]
+        XCTAssertTrue(control.waitForExistence(timeout: 5), "Missing segmented control \(identifier)")
+        let segment = control.buttons[title]
+        XCTAssertTrue(segment.waitForExistence(timeout: 3), "Missing segment \(title) in \(identifier)")
+        segment.tap()
+    }
+
+    private func openDefaultPlayback() throws {
+        let list = app.tables["catalog.list"]
+        XCTAssertTrue(list.waitForExistence(timeout: 10))
+        let first = list.cells["catalog.item.0"]
+        XCTAssertTrue(first.waitForExistence(timeout: 5))
+        first.tap()
+        XCTAssertTrue(app.otherElements["detail.player"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            waitForState(["PLAYING"], timeout: 12),
+            "Detail page did not auto-play. (detailDiagnostics())"
+        )
+    }
+
     private func waitForState(_ accepted: [String], timeout: TimeInterval) -> Bool {
         let state = app.staticTexts["detail.state"]
         return waitForLabel(state, accepted: accepted, timeout: timeout)
@@ -126,6 +198,37 @@ final class SwiftExampleUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return (element.value as? String).map(accepted.contains) ?? false
+    }
+
+    private func renderedFrameCount() -> Int {
+        let summary = app.staticTexts["detail.metrics"].label
+        guard let range = summary.range(of: "Rendered ") else { return 0 }
+        let value = summary[range.upperBound...].split(separator: " ").first.map(String.init) ?? "0"
+        return Int(value) ?? 0
+    }
+
+    private func waitForRenderedFrame(after count: Int, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if renderedFrameCount() > count { return true }
+            runLoop(for: 0.1)
+        }
+        return renderedFrameCount() > count
+    }
+
+    private func waitForConsole(containing text: String, timeout: TimeInterval) -> Bool {
+        let console = app.textViews["detail.console"]
+        guard console.waitForExistence(timeout: 5) else { return false }
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let value = console.value as? String, value.contains(text) { return true }
+            runLoop(for: 0.1)
+        }
+        return (console.value as? String)?.contains(text) ?? false
+    }
+
+    private func runLoop(for interval: TimeInterval) {
+        RunLoop.current.run(until: Date().addingTimeInterval(interval))
     }
 
     private func detailDiagnostics() -> String {

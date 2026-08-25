@@ -1,5 +1,6 @@
 import XCTest
 import QuartzCore
+import CoreMedia
 @testable import VAPPlayerKit
 
 final class VAPPlayerKitTests: XCTestCase {
@@ -782,6 +783,8 @@ private final class MutatingFrameSource: FrameSource {
     func startProducing(
         to buffer: FrameRingBuffer,
         token: SessionToken,
+        startTime: CMTime,
+        frameIndexOffset: Int,
         didProduce: @escaping (Int) -> Void,
         completion: @escaping (Result<Void, PlaybackError>) -> Void
     ) {}

@@ -13,6 +13,9 @@ final class AVAssetReaderFrameSource: FrameSource {
     private var asset: AVURLAsset?
     private var videoTrack: AVAssetTrack?
     private var reader: AVAssetReader?
+    /// 标识当前 producer。取消并重启时，旧 producer 即使晚回调也不能碰新一轮状态。
+    private var producerID: UInt64 = 0
+    private var readerProducerID: UInt64?
     /// 当前正在写入的 ring buffer；cancel 时用来唤醒等待中的 enqueue。
     private var currentBuffer: FrameRingBuffer?
     private var paused = false
@@ -61,26 +64,45 @@ final class AVAssetReaderFrameSource: FrameSource {
     func startProducing(
         to buffer: FrameRingBuffer,
         token: SessionToken,
+        startTime: CMTime,
+        frameIndexOffset: Int,
         didProduce: @escaping (Int) -> Void,
         completion: @escaping (Result<Void, PlaybackError>) -> Void
     ) {
-        state.withLock {
+        let currentProducerID = state.withLock { () -> UInt64 in
+            producerID &+= 1
             cancelled = false
             paused = false
             currentBuffer = buffer
+            return producerID
         }
         queue.async { [weak self] in
             guard let self else { return }
             do {
-                let (reader, output) = try self.makeReader()
-                self.state.withLock { self.reader = reader }
+                guard self.isCurrentProducer(currentProducerID) else {
+                    completion(.failure(.cancelled))
+                    return
+                }
+                let (reader, output) = try self.makeReader(startTime: startTime)
+                self.state.withLock {
+                    guard self.producerID == currentProducerID else { return }
+                    self.reader = reader
+                    self.readerProducerID = currentProducerID
+                }
                 guard reader.startReading() else {
-                    throw PlaybackError.decoderCreationFailed(osStatus: -1)
+                    throw PlaybackError.decoderCreationFailed(osStatus: self.errorCode(reader.error))
                 }
                 var index = 0
                 while true {
-                    guard self.waitUntilRunnable() else { return }
+                    guard self.waitUntilRunnable(for: currentProducerID) else {
+                        completion(.failure(.cancelled))
+                        return
+                    }
                     guard let sample = output.copyNextSampleBuffer() else { break }
+                    guard self.isCurrentProducer(currentProducerID) else {
+                        completion(.failure(.cancelled))
+                        return
+                    }
                     guard CMSampleBufferIsValid(sample), let pixelBuffer = CMSampleBufferGetImageBuffer(sample) else {
                         throw PlaybackError.decoderFailed(osStatus: -1)
                     }
@@ -97,11 +119,13 @@ final class AVAssetReaderFrameSource: FrameSource {
                         pixelBuffer: pixelBuffer,
                         presentationTime: presentationTime,
                         duration: duration,
-                        index: index
+                        index: frameIndexOffset + index
                     )
                     guard buffer.enqueueWaiting(frame) else {
-                        if !buffer.isCancelled {
+                        if !buffer.isCancelled, self.isCurrentProducer(currentProducerID) {
                             completion(.failure(.decoderFailed(osStatus: -1)))
+                        } else {
+                            completion(.failure(.cancelled))
                         }
                         return
                     }
@@ -110,21 +134,38 @@ final class AVAssetReaderFrameSource: FrameSource {
                 }
                 let status = reader.status
                 self.state.withLock {
-                    self.reader = nil
-                    self.currentBuffer = nil
+                    if self.readerProducerID == currentProducerID {
+                        self.reader = nil
+                        self.readerProducerID = nil
+                    }
+                    if self.producerID == currentProducerID {
+                        self.currentBuffer = nil
+                    }
+                }
+                guard self.isCurrentProducer(currentProducerID) else {
+                    completion(.failure(.cancelled))
+                    return
                 }
                 switch status {
                 case .completed:
                     completion(.success(()))
                 case .cancelled:
-                    break
+                    completion(.failure(.cancelled))
                 default:
-                    completion(.failure(.decoderFailed(osStatus: -1)))
+                    completion(.failure(.decoderFailed(osStatus: self.errorCode(reader.error))))
                 }
             } catch let error as PlaybackError {
-                completion(.failure(error))
+                if self.isCurrentProducer(currentProducerID) {
+                    completion(.failure(error))
+                } else {
+                    completion(.failure(.cancelled))
+                }
             } catch {
-                completion(.failure(.decoderCreationFailed(osStatus: -1)))
+                if self.isCurrentProducer(currentProducerID) {
+                    completion(.failure(.decoderCreationFailed(osStatus: -1)))
+                } else {
+                    completion(.failure(.cancelled))
+                }
             }
         }
     }
@@ -144,33 +185,44 @@ final class AVAssetReaderFrameSource: FrameSource {
 
     /// 取消生产。必须在 decoder queue 上调用 `cancelReading`，避免与 copyNext 并发导致崩溃。
     func cancel() {
-        let buffer = state.withLock { () -> FrameRingBuffer? in
+        let cancelledProducer = state.withLock { () -> (UInt64, FrameRingBuffer?) in
+            let cancelledProducerID = producerID
+            producerID &+= 1
             cancelled = true
             paused = false
             let buffer = currentBuffer
             currentBuffer = nil
             state.broadcast()
-            return buffer
+            return (cancelledProducerID, buffer)
         }
-        buffer?.cancelWaiting()
+        cancelledProducer.1?.cancelWaiting()
 
         // copyNextSampleBuffer 正在 decoder queue 上执行。
         // 并发调用 cancelReading 会拆掉 AVFoundation 远端 reader，真机上可复现 EXC_BAD_ACCESS。
         // 因此取消和释放必须与 producer 串行。
         queue.async { [self] in
             state.withLock {
+                guard readerProducerID == cancelledProducer.0 else { return }
                 reader?.cancelReading()
                 reader = nil
+                readerProducerID = nil
             }
         }
     }
 
     /// 创建 NV12、Metal 兼容的 track output。`alwaysCopiesSampleData = false` 减少拷贝。
-    private func makeReader() throws -> (AVAssetReader, AVAssetReaderTrackOutput) {
+    private func makeReader(startTime: CMTime) throws -> (AVAssetReader, AVAssetReaderTrackOutput) {
         guard let asset = state.withLock({ self.asset }), let track = state.withLock({ self.videoTrack }) else {
             throw PlaybackError.decoderCreationFailed(osStatus: -1)
         }
         let reader = try AVAssetReader(asset: asset)
+        let safeStartTime: CMTime
+        if startTime.isValid, startTime.isNumeric, startTime.seconds.isFinite, startTime.seconds > 0 {
+            safeStartTime = CMTime(seconds: startTime.seconds, preferredTimescale: 600)
+        } else {
+            safeStartTime = .zero
+        }
+        reader.timeRange = CMTimeRange(start: safeStartTime, duration: .positiveInfinity)
         let output = AVAssetReaderTrackOutput(
             track: track,
             outputSettings: [
@@ -187,12 +239,21 @@ final class AVAssetReaderFrameSource: FrameSource {
     }
 
     /// pause 时阻塞 decoder queue；cancel 后返回 false 结束生产循环。
-    private func waitUntilRunnable() -> Bool {
+    private func waitUntilRunnable(for producerID: UInt64) -> Bool {
         state.lock()
         defer { state.unlock() }
-        while paused, !cancelled {
+        while paused, !cancelled, self.producerID == producerID {
             state.wait()
         }
-        return !cancelled
+        return !cancelled && self.producerID == producerID
+    }
+
+    private func isCurrentProducer(_ producerID: UInt64) -> Bool {
+        state.withLock { !cancelled && self.producerID == producerID }
+    }
+
+    private func errorCode(_ error: Error?) -> Int32 {
+        guard let error else { return -1 }
+        return Int32(clamping: (error as NSError).code)
     }
 }

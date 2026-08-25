@@ -44,8 +44,8 @@ final class PlaybackSession {
     private let inspector: AssetInspector
     /// 解码后端，向 ring buffer 产出带 PTS 的帧。
     private let frameSource: FrameSource
-    /// 固定容量帧缓冲，满时对 decoder 形成背压。
-    private let ringBuffer: FrameRingBuffer
+    /// 固定容量帧缓冲，满时对 decoder 形成背压。重建 decoder 时替换 buffer，避免旧 reader 写入新一轮。
+    private var ringBuffer: FrameRingBuffer
     /// 本 session 私有媒体时钟，pause 冻结、resume 重算 offset。
     private let clock: MediaClock
     /// NV12 packed 帧合成到 CAMetalLayer。
@@ -82,6 +82,12 @@ final class PlaybackSession {
     private var pendingFrame: DecodedFrame?
     /// 本循环最后一帧的结束时间，用于判断循环是否播完。
     private var lastFrameEndTime: TimeInterval?
+    /// 当前 decoder 生产周期。后台取消旧 reader 后，旧完成回调必须失效。
+    private var sourceGeneration: UInt64 = 0
+    /// 前后台切换可能令 AVAssetReader 失效，前台恢复时需要从冻结位置重建。
+    private var decoderNeedsRestart = false
+    /// 当前 GPU 提交周期。后台失效的 command buffer completion 不能污染恢复后的状态。
+    private var renderGeneration: UInt64 = 0
     /// prepare 开始时间，用于埋点。
     private var prepareStartedAt: CFTimeInterval = 0
     /// play 开始时间，用于首帧耗时埋点。
@@ -220,6 +226,7 @@ final class PlaybackSession {
     /// 从 ready 进入 playing：重置循环状态、启动动图槽位和解码生产。
     func play() {
         guard state == .ready else { return }
+        decoderNeedsRestart = false
         state = .playing
         completedLoops = 0
         firstFrameDelivered = false
@@ -254,13 +261,32 @@ final class PlaybackSession {
     /// 从 pause / suspend 恢复。若时钟尚未启动，等到首帧入缓冲后再开播。
     func resume() {
         guard state == .paused || state == .suspended else { return }
+        let wasSuspended = state == .suspended
         state = .playing
-        frameSource.resume()
-        if timelineStarted {
+        if wasSuspended && decoderNeedsRestart {
+            decoderNeedsRestart = false
+            metricsSink?.record(.decoderRebuild)
+            timelineStarted = false
+            audioReady = false
+            sourceEnded = false
+            renderPending = false
+            pendingFrame = nil
+            lastFrameEndTime = nil
+            let mediaSeconds = max(0, clock.currentMediaTime())
+            let startTime = CMTime(seconds: mediaSeconds, preferredTimescale: 600)
+            startSource(startTime: startTime, frameIndexOffset: frameIndex(for: mediaSeconds))
+            audioCoordinator.seek(to: mediaSeconds) { [weak self, token] in
+                guard let self, self.token == token, !self.terminalDelivered, self.state == .playing else { return }
+                self.audioReady = true
+                self.startTimelineIfReady()
+            }
+        } else if timelineStarted {
+            frameSource.resume()
             clock.resume()
             audioCoordinator.resume()
             startPacer()
         } else {
+            frameSource.resume()
             startTimelineIfReady()
         }
         animatedPlayback.start()
@@ -271,10 +297,18 @@ final class PlaybackSession {
         guard state == .playing else { return }
         state = .suspended
         pacer.stop()
-        frameSource.pause()
+        decoderNeedsRestart = true
+        sourceGeneration &+= 1
+        frameSource.cancel()
+        // Do not reset the old buffer here: serialized reader cancellation may still
+        // be finishing. Replace it so the resumed reader cannot share that buffer.
+        ringBuffer = FrameRingBuffer()
         if timelineStarted { clock.pause() }
         audioCoordinator.pause()
         animatedPlayback.pause()
+        renderGeneration &+= 1
+        renderPending = false
+        pendingFrame = nil
     }
 
     /// 拆除资源并给出终态。idle 或已终态时为空操作。
@@ -286,37 +320,69 @@ final class PlaybackSession {
         deliverFinish(reason)
     }
 
-    /// 启动或重启解码生产。每个循环都会新建一次 reader，旧回调靠 token 丢弃。
-    private func startSource() {
+    /// 启动或重启解码生产。每个循环都会新建一次 reader，旧回调靠 generation 丢弃。
+    private func startSource(startTime: CMTime = .zero, frameIndexOffset: Int = 0) {
+        sourceGeneration &+= 1
+        let currentSourceGeneration = sourceGeneration
         ringBuffer.reset()
         sourceEnded = false
         pendingFrame = nil
         lastFrameEndTime = nil
         let sink = metricsSink
         let peak = RingBufferPeakRecorder(sink: sink)
-        frameSource.startProducing(to: ringBuffer, token: token, didProduce: { [weak self, token] count in
-            sink?.record(.decodedFrame)
-            peak.recordIfNeeded(count)
-            Task { @MainActor in
-                guard let self, self.token == token, !self.terminalDelivered else { return }
-                self.startTimelineIfReady()
-            }
-        }) { [weak self, token] result in
-            Task { @MainActor in
-                guard let self, self.token == token, !self.terminalDelivered else { return }
-                switch result {
-                case .success:
-                    self.sourceEnded = true
-                    if !self.timelineStarted, self.ringBuffer.count == 0 {
-                        self.fail(PlaybackError.decoderFailed(osStatus: -1))
-                    } else {
-                        self.startTimelineIfReady()
+        let buffer = ringBuffer
+        frameSource.startProducing(
+            to: buffer,
+            token: token,
+            startTime: startTime,
+            frameIndexOffset: frameIndexOffset,
+            didProduce: { [weak self, token] count in
+                sink?.record(.decodedFrame)
+                peak.recordIfNeeded(count)
+                Task { @MainActor in
+                    guard
+                        let self,
+                        self.token == token,
+                        self.sourceGeneration == currentSourceGeneration,
+                        !self.terminalDelivered
+                    else { return }
+                    self.startTimelineIfReady()
+                }
+            },
+            completion: { [weak self, token] result in
+                Task { @MainActor in
+                    guard
+                        let self,
+                        self.token == token,
+                        self.sourceGeneration == currentSourceGeneration,
+                        !self.terminalDelivered
+                    else { return }
+                    switch result {
+                    case .success:
+                        self.sourceEnded = true
+                        if !self.timelineStarted, self.ringBuffer.count == 0 {
+                            self.fail(PlaybackError.decoderFailed(osStatus: -1))
+                        } else {
+                            self.startTimelineIfReady()
+                        }
+                    case .failure(let error):
+                        if self.state == .suspended || self.decoderNeedsRestart {
+                            self.decoderNeedsRestart = true
+                        } else if error.code != .cancelled {
+                            self.fail(error)
+                        }
                     }
-                case .failure(let error):
-                    self.fail(error)
                 }
             }
-        }
+        )
+    }
+
+    /// 以 vapc fps 把恢复位置映射到动态 attachment 的原始 frame index。
+    private func frameIndex(for mediaSeconds: TimeInterval) -> Int {
+        guard let inspection else { return 0 }
+        let fps = Double(max(1, inspection.vapc.framesPerSecond))
+        let index = Int((mediaSeconds * fps).rounded(.down))
+        return min(max(0, index), max(0, inspection.vapc.frameCount - 1))
     }
 
     /// 在主 run loop 上订阅 VSYNC，每次只询问当前 media time。
@@ -364,9 +430,15 @@ final class PlaybackSession {
                 lastFrameEndTime = max(lastFrameEndTime ?? frameEnd, frameEnd)
             }
             renderPending = true
+            let currentRenderGeneration = renderGeneration
             renderer.render(frame, vapc: inspection.vapc) { [weak self, token] result in
                 Task { @MainActor in
-                    guard let self, self.token == token, !self.terminalDelivered else { return }
+                    guard
+                        let self,
+                        self.token == token,
+                        self.renderGeneration == currentRenderGeneration,
+                        !self.terminalDelivered
+                    else { return }
                     self.renderPending = false
                     switch result {
                     case .success(true):
@@ -381,7 +453,7 @@ final class PlaybackSession {
                         self.pendingFrame = frame
                         self.metricsSink?.record(.metalDrawableFailure)
                     case .failure(let error):
-                        if error.code != .cancelled { self.fail(error) }
+                        if self.state != .suspended, error.code != .cancelled { self.fail(error) }
                     }
                 }
             }

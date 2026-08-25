@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import CoreMedia
 
 /// 解码后端内部协议。公开 API 不得依赖具体实现。
 ///
@@ -11,6 +12,8 @@ protocol FrameSource: AnyObject {
     func startProducing(
         to buffer: FrameRingBuffer,
         token: SessionToken,
+        startTime: CMTime,
+        frameIndexOffset: Int,
         didProduce: @escaping (Int) -> Void,
         completion: @escaping (Result<Void, PlaybackError>) -> Void
     )

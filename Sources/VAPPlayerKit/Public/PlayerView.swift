@@ -258,7 +258,7 @@ public final class PlayerView: UIView {
             context.target.play()
             if self.bounds.isEmpty {
                 context.target.suspend()
-            } else if self.window == nil {
+            } else if self.window == nil || UIApplication.shared.applicationState != .active {
                 switch context.target.options.backgroundPolicy {
                 case .suspend: context.target.suspend()
                 case .stop:
@@ -397,6 +397,16 @@ public final class PlayerView: UIView {
     /// 监听进后台 / 回前台，把生命周期映射到 session 的 suspend / resume / stop。
     private func observeApplicationLifecycle() {
         let center = NotificationCenter.default
+        // willResignActive arrives before iOS may suspend AVFoundation / Metal work.
+        // Suspending early prevents an in-flight AVAssetReader from being reported as
+        // a real decoder failure while the process is moving to the background.
+        notificationTokens.append(center.addObserver(
+            forName: UIApplication.willResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.handleBackground() }
+        })
         notificationTokens.append(center.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
