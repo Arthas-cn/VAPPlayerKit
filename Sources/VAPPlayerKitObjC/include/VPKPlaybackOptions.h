@@ -33,11 +33,17 @@ typedef NS_ENUM(NSInteger, VPKDynamicImagePlaybackMode) {
 /// 一次播放配置。`loopCount` 是总次数：1 播一次，0 无限循环。不要按旧 `repeatCount` 直传。
 @interface VPKPlaybackOptions : NSObject <NSCopying>
 
+/// 总播放次数。1 播放一次，2 播放两次，0 无限循环。负值会被钳制为 1。
 @property (nonatomic, assign) NSInteger loopCount;
+/// 按 `canvasSize` 计算的内容缩放方式，不用编码分辨率。
 @property (nonatomic, assign) UIViewContentMode contentMode;
+/// 音频策略，默认静音。
 @property (nonatomic, assign) VPKAudioMode audioMode;
+/// 结束后是否清掉当前画面。
 @property (nonatomic, assign) BOOL clearsAfterFinish;
+/// 后台 / 离屏时是挂起还是停止。
 @property (nonatomic, assign) VPKBackgroundPolicy backgroundPolicy;
+/// 动态槽位图片播放策略。默认按内容播放动图。
 @property (nonatomic, assign) VPKDynamicImagePlaybackMode dynamicImagePlaybackMode;
 
 /// 宿主是否链接了 SDWebImage。组件不会把它编进自身。

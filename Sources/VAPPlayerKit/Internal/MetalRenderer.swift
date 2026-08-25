@@ -5,11 +5,15 @@ import CoreVideo
 import QuartzCore
 import simd
 
+/// 当前 drawable 尺寸和内容缩放方式。由主线程写入，renderer 在 render queue 读取。
 struct RenderSnapshot: Sendable {
+    /// 像素尺寸，已乘 screen scale。
     let drawableSize: CGSize
+    /// 按 vapc `canvasSize` 计算 viewport，不用编码分辨率。
     let contentMode: UIView.ContentMode
 }
 
+/// 视频底图 fragment 的 RGB/Alpha 采样区域和 YCbCr 矩阵。
 private struct FrameUniforms {
     var rgbRect: SIMD4<Float>
     var alphaRect: SIMD4<Float>
@@ -17,6 +21,7 @@ private struct FrameUniforms {
     var padding = SIMD3<UInt32>(repeating: 0)
 }
 
+/// 动态槽位 overlay 的画布矩形、mask 区域和旋转。
 private struct AttachmentUniforms {
     var renderRect: SIMD4<Float>
     var maskRect: SIMD4<Float>
@@ -26,9 +31,8 @@ private struct AttachmentUniforms {
     var padding = SIMD2<UInt32>(repeating: 0)
 }
 
-/// Resources whose lifetime must extend through GPU completion. The shared
-/// texture cache is owned by `MetalContext`; these references are released
-/// before the context is allowed to perform an idle flush.
+/// GPU 尚未完成时必须继续持有的帧资源。共享 texture cache 由 `MetalContext` 持有；
+/// 这些引用必须在 context 允许 idle flush 之前释放。
 private final class InFlightFrameResources: @unchecked Sendable {
     private var frame: DecodedFrame?
     private var yReference: CVMetalTexture?
@@ -40,6 +44,7 @@ private final class InFlightFrameResources: @unchecked Sendable {
         self.uvReference = uvReference
     }
 
+    /// command buffer 完成后丢掉 CVPixelBuffer / CVMetalTexture，才能安全 flush cache。
     func releaseReferences() {
         frame = nil
         yReference = nil
@@ -48,20 +53,27 @@ private final class InFlightFrameResources: @unchecked Sendable {
 }
 
 /// 将 NV12 pixel buffer 中的 packed RGB/Alpha 区域合成到 `CAMetalLayer`。
-/// Mutable state is confined to `renderQueue`; MainActor only hands in immutable snapshots.
+/// 可变状态限制在 `renderQueue`；MainActor 只传入不可变 snapshot。
 final class MetalRenderer: @unchecked Sendable {
     private let context: MetalContext
+    /// 所有 GPU 提交和动态纹理更新都在这条队列串行执行。
     private let renderQueue = DispatchQueue(label: "com.vapplayerkit.renderer", qos: .userInteractive)
+    /// 跟踪尚未完成的 command buffer，dispose 时必须等它归零。
     private let inFlight = DispatchGroup()
     private var device: MTLDevice?
     private var commandQueue: MTLCommandQueue?
     private var library: MTLLibrary?
+    /// packed 视频底图 pipeline。
     private var pipeline: MTLRenderPipelineState?
+    /// 动态 overlay 正向混合 pipeline。
     private var attachmentPipeline: MTLRenderPipelineState?
+    /// 图片槽位先打孔（抠掉近黑 locator）再用的 pipeline。
     private var attachmentPunchPipeline: MTLRenderPipelineState?
+    /// 按 vapc source id 缓存的动态纹理。
     private var dynamicTextures: [String: MTLTexture] = [:]
     private weak var layer: CAMetalLayer?
     private var snapshot = RenderSnapshot(drawableSize: .zero, contentMode: .scaleAspectFit)
+    /// dispose 后拒绝新的 render / 动态纹理更新。
     private var disposed = false
 
     init(context: MetalContext = .shared) {
@@ -105,6 +117,7 @@ final class MetalRenderer: @unchecked Sendable {
         }
     }
 
+    /// 把动态槽位 UIImage 上传为 Metal 纹理。超出单张 / 整场字节上限时失败。
     func prepareDynamic(_ snapshot: DynamicSnapshot) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             renderQueue.async { [weak self] in
@@ -145,8 +158,8 @@ final class MetalRenderer: @unchecked Sendable {
         }
     }
 
-    /// Normalize UIKit / TextKit output to a predictable top-left RGBA8 surface before upload.
-    /// MTKTextureLoader rejects some device-only extended-color CGImage formats.
+    /// 把 UIKit / TextKit 输出规范成左上角原点的 RGBA8 表面再上传。
+    /// `MTKTextureLoader` 会拒绝部分设备扩展色域 CGImage，因此走手工 bitmap。
     static func makeDynamicTexture(cgImage: CGImage, device: MTLDevice) throws -> MTLTexture {
         let width = cgImage.width
         let height = cgImage.height
@@ -168,11 +181,8 @@ final class MetalRenderer: @unchecked Sendable {
         ), let bytes = context.data else {
             throw PlaybackError.metalUnavailable
         }
-        // DynamicResolver has already rasterized both provider images and
-        // replacement text into a top-left RGBA bitmap. Metal samples texture
-        // coordinates from the same origin, so do not apply the usual
-        // raw-CGImage CoreGraphics flip here; doing so mirrors every
-        // replacement asset.
+        // DynamicResolver 已经把图片和替换文字栅格化成左上角原点的 RGBA。
+        // Metal 纹理坐标同源，这里不要再做常见的 CGImage 垂直翻转，否则动态素材会上下颠倒。
         context.clear(CGRect(x: 0, y: 0, width: width, height: height))
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
         if let pixels = context.data?.assumingMemoryBound(to: UInt8.self) {
@@ -206,10 +216,12 @@ final class MetalRenderer: @unchecked Sendable {
         return texture
     }
 
+    /// 主线程更新 viewport 计算所需的 drawable 尺寸和 contentMode。
     func update(snapshot: RenderSnapshot) {
         renderQueue.async { [weak self] in self?.snapshot = snapshot }
     }
 
+    /// 动图槽位换帧时替换对应 source id 的纹理。已 dispose 则忽略。
     func updateDynamicTexture(id: String, image: UIImage) {
         renderQueue.async { [weak self] in
             guard let self, let device = self.device, !self.disposed, let cgImage = image.cgImage else { return }
@@ -242,6 +254,8 @@ final class MetalRenderer: @unchecked Sendable {
         }
     }
 
+    /// 编码一帧：清屏、画 packed 视频、再按 zIndex 叠加动态槽位。
+    /// 返回 `false` 表示 drawable 暂不可用，调用方应保留该帧下次再试。
     private func encode(
         _ frame: DecodedFrame,
         vapc: VapcDocument,
@@ -324,9 +338,8 @@ final class MetalRenderer: @unchecked Sendable {
             encoder.setFragmentTexture(yTexture, index: 0)
             encoder.setFragmentTexture(uvTexture, index: 1)
             encoder.setFragmentTexture(texture, index: 2)
-            // Image slots flatten colorful animation (A) with a near-black locator
-            // (B). Knock out only B, then overlay C so A shows through transparent
-            // gift pixels. Text overlays the banner without punching.
+            // 图片槽位把彩色动画 (A) 压在近黑 locator (B) 上。
+            // 先打孔只抠掉 B，再叠加 C，让礼物透明像素透出 A；文字槽位不打孔。
             if attachment.kind == .image {
                 encoder.setRenderPipelineState(attachmentPunchPipeline)
                 encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
@@ -348,9 +361,8 @@ final class MetalRenderer: @unchecked Sendable {
             } else {
                 completion(.failure(.metalUnavailable))
             }
-            // `DispatchGroup.notify` may run as soon as leave() is called.
-            // Drop CVMetalTexture references before decrementing the context's
-            // active count so an idle cache flush cannot race finalizers.
+            // `DispatchGroup.notify` 可能在 leave() 后立刻跑。
+            // 先丢掉 CVMetalTexture 引用再减少 context 计数，避免 idle flush 与析构竞态。
             resources.releaseReferences()
             context.endTextureSubmission()
             inFlight.leave()
@@ -359,10 +371,9 @@ final class MetalRenderer: @unchecked Sendable {
         return true
     }
 
+    /// 等待所有已提交 command buffer 完成后再释放本 session 的 GPU 对象。
+    /// 共享 texture cache 仍由 context 持有，这里只拆除 renderer 私有状态。
     func dispose() {
-        // Keep the renderer alive until every submitted command buffer has
-        // completed and its CVMetalTexture references have been released.
-        // The context owns the shared cache; this only tears down session state.
         renderQueue.async { [self] in
             self.disposed = true
             self.inFlight.notify(queue: self.renderQueue) { [self] in
@@ -371,9 +382,8 @@ final class MetalRenderer: @unchecked Sendable {
         }
     }
 
+    /// 释放 pipeline / 动态纹理 / command queue。texture cache 可能仍被其他 renderer 使用。
     private func releaseResources() {
-        // The texture cache is package-scoped and may be in use by another
-        // renderer. It is flushed/released only with the shared context.
         pipeline = nil
         attachmentPipeline = nil
         attachmentPunchPipeline = nil
@@ -385,6 +395,7 @@ final class MetalRenderer: @unchecked Sendable {
         context.flushTextureCacheIfIdle()
     }
 
+    /// 按 `canvasSize` + `contentMode` 计算 Metal viewport。AspectFit / Fill 居中，Fill 铺满。
     static func viewport(drawableSize: CGSize, canvasSize: CGSize, contentMode: UIView.ContentMode) -> MTLViewport {
         guard drawableSize.width > 0, drawableSize.height > 0, canvasSize.width > 0, canvasSize.height > 0 else {
             return MTLViewport(originX: 0, originY: 0, width: 0, height: 0, znear: 0, zfar: 1)
@@ -407,6 +418,7 @@ final class MetalRenderer: @unchecked Sendable {
         )
     }
 
+    /// 把像素矩形归一化到 0...1，供 shader 采样。
     private func normalized(_ rect: CGRect, within size: CGSize) -> SIMD4<Float> {
         SIMD4(
             Float(rect.minX / size.width),
@@ -416,7 +428,7 @@ final class MetalRenderer: @unchecked Sendable {
         )
     }
 
-    /// AVFoundation propagates the track matrix to the decoded image buffer. Treat unknown/2020 as 709.
+    /// AVFoundation 会把轨道矩阵写到 pixel buffer。未知 / BT.2020 按 BT.709 处理。
     private func colorMatrix(for pixelBuffer: CVPixelBuffer) -> UInt32 {
         let attachment = CVBufferCopyAttachment(pixelBuffer, kCVImageBufferYCbCrMatrixKey, nil) as? String
         return attachment == (kCVImageBufferYCbCrMatrix_ITU_R_601_4 as String) ? 0 : 1

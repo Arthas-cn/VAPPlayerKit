@@ -7,6 +7,7 @@ public struct TextAttributes: @unchecked Sendable {
     /// 文字颜色。
     public var color: UIColor
 
+    /// 默认字体 17pt、白色。业务圆角和裁剪应在调用前处理。
     public init(font: UIFont = .systemFont(ofSize: 17), color: UIColor = .white) {
         self.font = font
         self.color = color
@@ -36,7 +37,9 @@ public enum DynamicContent: @unchecked Sendable {
 /// vapc `srcType`。宿主应按此决定返回文字还是图片，不要从 tag 字符串猜测。
 @objc(VPKDynamicSourceKind)
 public enum DynamicSourceKind: Int, Sendable {
+    /// 图片槽位，应对应 `DynamicContent.image` / `.imageURL` / `.hidden`。
     case image = 0
+    /// 文字槽位，应对应 `.text` / `.textReplacement` / `.hidden`。
     case text = 1
 }
 
@@ -50,10 +53,12 @@ public final class SourceMetadata: NSObject {
     /// vapc 声明的槽位类型：`img` 或 `txt`。
     @objc public let kind: DynamicSourceKind
 
+    /// 兼容旧调用：未声明 kind 时按图片槽位处理。
     @objc public convenience init(tag: String, slotSize: CGSize) {
         self.init(tag: tag, slotSize: slotSize, kind: .image)
     }
 
+    /// 完整构造。`kind` 必须与 vapc `srcType` 一致。
     @objc public init(tag: String, slotSize: CGSize, kind: DynamicSourceKind) {
         self.tag = tag
         self.slotSize = slotSize
@@ -81,6 +86,7 @@ public protocol DynamicContentProvider: AnyObject {
     func font(forTag tag: String) -> UIFont?
 }
 
+/// 未实现 `font(forTag:)` 时的默认行为：使用组件自动字号估算。
 public extension DynamicContentProvider {
     func font(forTag tag: String) -> UIFont? { nil }
 }

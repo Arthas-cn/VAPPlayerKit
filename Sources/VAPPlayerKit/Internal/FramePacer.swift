@@ -5,7 +5,9 @@ import QuartzCore
 ///
 /// 对照 `vap-master` 的全局 decode thread pool / FPS dispatcher：这里只服务当前 session。
 final class FramePacer: NSObject {
+    /// 绑定主 run loop 的 display link。stop 时必须 invalidate。
     private var displayLink: CADisplayLink?
+    /// 每次 VSYNC 回调。由当前 session 注入。
     private var handler: (() -> Void)?
 
     /// 在主 run loop 的 `.common` 模式采样。重复 start 会先停掉旧 link。
@@ -29,6 +31,7 @@ final class FramePacer: NSObject {
         handler?()
     }
 
+    /// stop / deinit 时必须 invalidate，避免 display link 继续回调已释放的 session。
     deinit {
         displayLink?.invalidate()
     }

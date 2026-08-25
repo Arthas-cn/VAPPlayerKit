@@ -22,8 +22,10 @@ protocol FrameSource: AnyObject {
     func cancel()
 }
 
-/// FrameSource 准备阶段产出的只读信息，最终会并入 `AssetMetadata`。
+/// FrameSource 准备阶段产出的只读信息，最终会与 inspector metadata 交叉校验。
 struct FrameSourceMetadata {
+    /// packed 视频编码宽高。
     let encodedVideoSize: CGSize
+    /// `h264` 或 `hevc`。
     let codec: String
 }

@@ -26,8 +26,11 @@ public final class AssetMetadata: NSObject {
     /// vapc 声明的动态 source；legacy 文件为空。
     @objc public let dynamicSources: [SourceMetadata]
 
-    /// 是否携带本组件解析得到的内部布局，可直接用于 metadata 复用播放 API。
-    /// 手工调用公开 initializer 构造的摘要对象不包含完整帧布局，因此返回 `false`。
+    /// 是否携带本组件解析得到的内部布局，可直接用于 metadata 复用播放 API 和全局缓存。
+    ///
+    /// 需要同时具备 vapc 完整帧布局，以及 inspection 时采集的本地文件签名。
+    /// 手工调用公开 initializer 构造的摘要对象缺少这些内部字段，因此返回 `false`，
+    /// 既不能传给 `prepare(url:metadata:)`，也不会进入 `AssetMetadataCache`。
     @objc public var isReusableForPlayback: Bool {
         playbackDocument != nil
             && sourceURL != nil
@@ -36,10 +39,16 @@ public final class AssetMetadata: NSObject {
             && sourceFileIdentifier != nil
     }
 
+    /// 组件解析出的完整 vapc 布局。公开摘要对象为 `nil`，因此不能跳过 inspection。
     internal var playbackDocument: VapcDocument?
+    /// inspection 时的规范化本地路径。复用时必须与当前播放 URL 一致。
     internal var sourceURL: URL?
+    /// inspection 时的文件大小（字节）。签名校验的一部分。
     internal var sourceFileSize: Int64?
+    /// inspection 时的内容修改时间。签名校验的一部分。
     internal var sourceModificationDate: Date?
+    /// `NSURLFileResourceIdentifierKey` 对应的稳定文件 identity。
+    /// 路径被替换成另一个 inode 时即使大小和修改时间被刻意对齐，也能识别为过期。
     internal var sourceFileIdentifier: Data?
 
     /// 由 `AssetInspector` 在后台解析完成后构造。宿主也可以在测试里直接创建。

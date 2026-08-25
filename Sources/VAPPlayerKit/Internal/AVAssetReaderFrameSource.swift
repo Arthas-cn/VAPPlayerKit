@@ -6,11 +6,14 @@ import CoreVideo
 /// session 仍自行管理 PTS、背压、循环和渲染。
 final class AVAssetReaderFrameSource: FrameSource {
     private let url: URL
+    /// 解码生产线程。与主线程 / render queue 隔离。
     private let queue = DispatchQueue(label: "com.vapplayerkit.frame-source", qos: .userInitiated)
+    /// 保护 pause / cancel / reader 生命周期。
     private let state = NSCondition()
     private var asset: AVURLAsset?
     private var videoTrack: AVAssetTrack?
     private var reader: AVAssetReader?
+    /// 当前正在写入的 ring buffer；cancel 时用来唤醒等待中的 enqueue。
     private var currentBuffer: FrameRingBuffer?
     private var paused = false
     private var cancelled = false
@@ -19,6 +22,7 @@ final class AVAssetReaderFrameSource: FrameSource {
         self.url = url
     }
 
+    /// 加载视频轨并记录编码尺寸 / codec，此时还不创建 AVAssetReader。
     func prepare() async throws -> FrameSourceMetadata {
         let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         let tracks: [AVAssetTrack]
@@ -53,6 +57,7 @@ final class AVAssetReaderFrameSource: FrameSource {
         return FrameSourceMetadata(encodedVideoSize: size, codec: codec)
     }
 
+    /// 在 decoder queue 上循环 copyNextSampleBuffer，满缓冲时阻塞等待。
     func startProducing(
         to buffer: FrameRingBuffer,
         token: SessionToken,
@@ -124,10 +129,12 @@ final class AVAssetReaderFrameSource: FrameSource {
         }
     }
 
+    /// 暂停 sample 提交，不销毁 reader。
     func pause() {
         state.withLock { paused = true }
     }
 
+    /// 唤醒 decoder queue 继续生产。
     func resume() {
         state.withLock {
             paused = false
@@ -135,6 +142,7 @@ final class AVAssetReaderFrameSource: FrameSource {
         }
     }
 
+    /// 取消生产。必须在 decoder queue 上调用 `cancelReading`，避免与 copyNext 并发导致崩溃。
     func cancel() {
         let buffer = state.withLock { () -> FrameRingBuffer? in
             cancelled = true
@@ -146,11 +154,9 @@ final class AVAssetReaderFrameSource: FrameSource {
         }
         buffer?.cancelWaiting()
 
-        // AVAssetReaderOutput.copyNextSampleBuffer() is running on `queue`.
-        // Calling cancelReading() concurrently can tear down AVFoundation's
-        // remote reader while that call is still using it (a reproducible
-        // EXC_BAD_ACCESS on physical devices). Serialize cancellation and
-        // release with the producer instead.
+        // copyNextSampleBuffer 正在 decoder queue 上执行。
+        // 并发调用 cancelReading 会拆掉 AVFoundation 远端 reader，真机上可复现 EXC_BAD_ACCESS。
+        // 因此取消和释放必须与 producer 串行。
         queue.async { [self] in
             state.withLock {
                 reader?.cancelReading()
@@ -159,6 +165,7 @@ final class AVAssetReaderFrameSource: FrameSource {
         }
     }
 
+    /// 创建 NV12、Metal 兼容的 track output。`alwaysCopiesSampleData = false` 减少拷贝。
     private func makeReader() throws -> (AVAssetReader, AVAssetReaderTrackOutput) {
         guard let asset = state.withLock({ self.asset }), let track = state.withLock({ self.videoTrack }) else {
             throw PlaybackError.decoderCreationFailed(osStatus: -1)
@@ -179,6 +186,7 @@ final class AVAssetReaderFrameSource: FrameSource {
         return (reader, output)
     }
 
+    /// pause 时阻塞 decoder queue；cancel 后返回 false 结束生产循环。
     private func waitUntilRunnable() -> Bool {
         state.lock()
         defer { state.unlock() }

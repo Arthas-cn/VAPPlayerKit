@@ -5,8 +5,11 @@ import Foundation
 /// 每次推进前都验证 header、扩展长度和父边界，避免损坏文件触发整数溢出或越界切片。
 struct MP4BoxReader {
     struct Box: Equatable {
+        /// 四字符类型，例如 `ftyp`、`moov`、`vapc`。
         let type: String
+        /// 含 header 的完整 box 范围。
         let range: Range<Int>
+        /// header 之后的 payload 范围。
         let payloadRange: Range<Int>
     }
 
@@ -14,6 +17,7 @@ struct MP4BoxReader {
     private static let extendedHeaderSize = 16
     private static let maximumBoxCount = 100_000
 
+    /// 从内存中的完整文件扫描顶层 box。主要用于测试。
     func topLevelBoxes(in data: Data) throws -> [Box] {
         guard data.count >= Self.regularHeaderSize else {
             throw PlaybackError.invalidMP4(reason: "File is shorter than an MP4 box header.")
@@ -51,7 +55,7 @@ struct MP4BoxReader {
         return boxes
     }
 
-    /// Scans only top-level box headers from a file. Box payloads are skipped with `seek`.
+    /// 只扫描文件的顶层 box header，payload 用 seek 跳过，避免整文件 mmap。
     func topLevelBoxes(inFile url: URL, fileSize: UInt64) throws -> [Box] {
         guard url.isFileURL else {
             throw PlaybackError.invalidURL
@@ -74,7 +78,7 @@ struct MP4BoxReader {
         }
     }
 
-    /// Reads one previously discovered box payload without mapping or loading the rest of the file.
+    /// 按已发现的 box 只读取其 payload，不加载文件其余部分。
     func readPayload(of box: Box, inFile url: URL) throws -> Data {
         guard url.isFileURL else {
             throw PlaybackError.invalidURL
@@ -105,9 +109,11 @@ struct MP4BoxReader {
     private struct ParsedHeader {
         let type: String
         let headerSize: Int
+        /// `0` 表示延续到文件末尾的 box。
         let boxSize: UInt64
     }
 
+    /// 用 FileHandle 顺序扫描顶层 box，与内存版本共享 header 解析规则。
     private func topLevelBoxes(in handle: FileHandle, fileSize: UInt64) throws -> [Box] {
         var boxes: [Box] = []
         var offset: UInt64 = 0
@@ -149,6 +155,7 @@ struct MP4BoxReader {
         return boxes
     }
 
+    /// 解析 8 字节常规 header；size==1 时再读 8 字节 extended size。
     private func parseHeader(_ firstHeader: Data, extendedHeader: Data?, at offset: UInt64) throws -> ParsedHeader {
         let shortSize = readUInt32(firstHeader, at: 0)
         let typeData = firstHeader[4..<8]
@@ -173,6 +180,7 @@ struct MP4BoxReader {
         }
     }
 
+    /// 校验 box 不越出父边界，且偏移可安全转为 Int。
     private func validate(boxSize: UInt64, headerSize: Int, type: String, offset: UInt64, fileSize: UInt64) throws {
         guard boxSize >= UInt64(headerSize), boxSize <= fileSize - offset else {
             throw PlaybackError.invalidMP4(reason: "Box \(type) exceeds its parent boundary.")
@@ -192,6 +200,7 @@ struct MP4BoxReader {
         )
     }
 
+    /// 从指定偏移精确读取 `count` 字节，不足则视为截断的非法 MP4。
     private func readExactly(from handle: FileHandle, at offset: UInt64, count: Int, failureReason: String) throws -> Data {
         do {
             try handle.seek(toOffset: offset)
@@ -206,6 +215,7 @@ struct MP4BoxReader {
         }
     }
 
+    /// ISO BMFF 使用大端整数。
     private func readUInt32(_ data: Data, at offset: Int) -> UInt32 {
         data[offset..<(offset + 4)].reduce(0) { ($0 << 8) | UInt32($1) }
     }

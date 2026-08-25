@@ -5,8 +5,11 @@ import QuartzCore
 ///
 /// 不用屏幕刷新率当视频 FPS，也不用平均 FPS 覆盖 sample duration。
 final class MediaClock {
+    /// `true` 时 `currentMediaTime()` 返回冻结值。
     private var paused = true
+    /// 已播放的媒体时间（秒）。
     private var mediaTime: TimeInterval = 0
+    /// `resume` 时记录的 `CACurrentMediaTime() - mediaTime`。
     private var hostTimeOffset: TimeInterval = 0
 
     /// 记录当前媒体时间并停止推进。

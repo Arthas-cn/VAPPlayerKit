@@ -29,11 +29,13 @@ enum ShaderLibrary {
             ?? Bundle.module.url(forResource: "default", withExtension: "metallib")
     }
 
+    /// 回退用的 `.metal` 源码路径，供运行时编译。
     static var metalSourceURL: URL? {
         Bundle.module.url(forResource: "VPKShaders", withExtension: "metal", subdirectory: "Shaders")
             ?? Bundle.module.url(forResource: "VPKShaders", withExtension: "metal")
     }
 
+    /// 读取 metal 源码文本。资源缺失时返回 nil，由 `make` 继续尝试 default library。
     private static var metalSource: String? {
         guard let url = metalSourceURL else { return nil }
         return try? String(contentsOf: url, encoding: .utf8)

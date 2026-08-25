@@ -2,14 +2,16 @@ import Foundation
 import ObjectiveC
 import UIKit
 
-/// Optional SDWebImage hook. The kit never links SDWebImage / SDWebImageWebPCoder;
-/// hosts that do can pass `SDAnimatedImage` and this bridge will drive frames.
+/// 可选的 SDWebImage 运行时桥。组件从不链接 SDWebImage / SDWebImageWebPCoder；
+/// 宿主若自行链接并传入 `SDAnimatedImage`，本桥会用 runtime selector 驱动帧。
 enum SDWebImageRuntime {
+    /// 进程里同时存在 `SDAnimatedImage` 和 `SDAnimatedImagePlayer` 才视为可用。
     static var isAvailable: Bool {
         NSClassFromString("SDAnimatedImage") != nil
             && NSClassFromString("SDAnimatedImagePlayer") != nil
     }
 
+    /// 是否为帧数大于 1 的 `SDAnimatedImage`。普通 UIImage 返回 false。
     static func isAnimatedImage(_ image: UIImage) -> Bool {
         guard isAvailable, let cls = NSClassFromString("SDAnimatedImage"), image.isKind(of: cls) else {
             return false
@@ -17,6 +19,7 @@ enum SDWebImageRuntime {
         return frameCount(of: image) > 1
     }
 
+    /// 读取 `animatedImageFrameCount`。selector 不存在时返回 0。
     static func frameCount(of image: UIImage) -> UInt {
         let sel = NSSelectorFromString("animatedImageFrameCount")
         guard image.responds(to: sel), let method = class_getInstanceMethod(type(of: image), sel) else {
@@ -26,6 +29,7 @@ enum SDWebImageRuntime {
         return unsafeBitCast(method_getImplementation(method), to: Getter.self)(image, sel)
     }
 
+    /// 读取指定序号的动画帧。失败返回 nil。
     static func frame(of image: UIImage, at index: UInt) -> UIImage? {
         let sel = NSSelectorFromString("animatedImageFrameAtIndex:")
         guard image.responds(to: sel), let method = class_getInstanceMethod(type(of: image), sel) else {
@@ -36,6 +40,7 @@ enum SDWebImageRuntime {
             .takeUnretainedValue()
     }
 
+    /// 创建 `SDAnimatedImagePlayer`，循环次数设为 0（跟随 VAP session 生命周期）。
     static func makePlayer(provider: UIImage, onFrame: @escaping (UInt, UIImage) -> Void) -> Player? {
         guard isAnimatedImage(provider), let cls = NSClassFromString("SDAnimatedImagePlayer") else {
             return nil
@@ -50,7 +55,7 @@ enum SDWebImageRuntime {
             return nil
         }
 
-        // 0 means loop for as long as the VAP session keeps the player alive.
+        // 0 表示只要 VAP session 还活着就一直循环。
         setUnsigned(raw, selector: "setTotalLoopCount:", value: 0)
 
         typealias FrameHandler = @convention(block) (UInt, UIImage) -> Void
@@ -63,6 +68,7 @@ enum SDWebImageRuntime {
         return Player(raw: raw)
     }
 
+    /// 对 SDAnimatedImagePlayer 的轻量包装，避免把 ObjC 运行时细节漏到播放状态机。
     final class Player {
         private let raw: NSObject
 
@@ -85,6 +91,7 @@ enum SDWebImageRuntime {
             clearFrameHandler()
         }
 
+        /// 清空 frame handler，切断对 session 的强引用。
         private func clearFrameHandler() {
             let sel = NSSelectorFromString("setAnimationFrameHandler:")
             guard let method = class_getInstanceMethod(type(of: raw), sel) else { return }

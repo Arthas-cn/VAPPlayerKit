@@ -111,8 +111,10 @@ extension PlaybackError: LocalizedError {
 }
 
 extension PlaybackError: CustomNSError {
+    /// 与 `VPKPlaybackErrorDomain` 相同，保证 Swift / ObjC 错误域一致。
     public static var errorDomain: String { VPKPlaybackErrorDomain }
 
+    /// NSError.code，对应 `PlaybackErrorCode.rawValue`。
     public var errorCode: Int { code.rawValue }
 
     /// 额外诊断字段。当前仅包含 `stage`，后续可加 session id 与 fingerprint。

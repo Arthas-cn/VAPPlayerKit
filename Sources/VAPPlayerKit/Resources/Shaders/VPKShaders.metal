@@ -26,6 +26,7 @@ vertex VPKVertexOut vpk_vertex(uint vid [[vertex_id]]) {
     return out;
 }
 
+/// packed 视频底图的 RGB/Alpha 采样矩形和 YCbCr 矩阵。
 struct VPKFrameUniforms {
     float4 rgbRect;
     float4 alphaRect;
@@ -33,6 +34,7 @@ struct VPKFrameUniforms {
     uint3 padding;
 };
 
+/// 动态槽位顶点 / fragment 共用的画布矩形、mask 区域和旋转。
 struct VPKAttachmentUniforms {
     float4 renderRect;
     float4 maskRect;
@@ -49,6 +51,7 @@ struct VPKAttachmentVertexOut {
     float2 canvasCoordinate;
 };
 
+/// 按 BT.601 (`colorMatrix == 0`) 或 BT.709 把 NV12 转 RGB。输入已减去 video-range 偏移。
 float3 vpk_yuv_to_rgb(texture2d<float> yTexture,
                       texture2d<float> uvTexture,
                       sampler textureSampler,
@@ -88,6 +91,7 @@ fragment float4 vpk_fragment(
     return float4(rgb * alpha, alpha);
 }
 
+/// 动态槽位四边形：把 renderRect 映射到 clip space，并按 maskRotation 旋转 mask 坐标。
 vertex VPKAttachmentVertexOut vpk_attachment_vertex(
     uint vertexID [[vertex_id]],
     constant VPKAttachmentUniforms &uniforms [[buffer(0)]]
@@ -118,6 +122,7 @@ vertex VPKAttachmentVertexOut vpk_attachment_vertex(
     return out;
 }
 
+/// 图片槽位打孔：只抠近黑 locator，保留彩色动画区域，供后续 overlay 混合。
 fragment float4 vpk_attachment_punch_fragment(
     VPKAttachmentVertexOut in [[stage_in]],
     texture2d<float> yTexture [[texture(0)]],
@@ -131,13 +136,14 @@ fragment float4 vpk_attachment_punch_fragment(
     float3 rgb = saturate(vpk_yuv_to_rgb(
         yTexture, uvTexture, linearSampler, rgbCoordinate, uniforms.colorMatrix
     ));
-    // Image slots bake a near-black locator (B) under the colorful animation (A).
-    // Knock out only B so C can blend over A; do not punch gold frames or glow.
+    // 图片槽位把近黑 locator (B) 压在彩色动画 (A) 下。
+    // 只抠 B，让后续 overlay 透出 A；不要打穿金色描边或发光。
     float peak = max(max(rgb.r, rgb.g), rgb.b);
     float locator = 1.0 - smoothstep(0.04, 0.12, peak);
     return float4(0.0, 0.0, 0.0, maskAlpha * locator);
 }
 
+/// 动态 overlay 正向混合：用 mask 的 Alpha 调制 source 纹理。
 fragment float4 vpk_attachment_fragment(
     VPKAttachmentVertexOut in [[stage_in]],
     texture2d<float> yTexture [[texture(0)]],

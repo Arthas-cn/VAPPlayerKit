@@ -1,26 +1,36 @@
 import Foundation
 import UIKit
 
+/// 动态槽位解析后的可上传内容。组件不会保留原始 provider 回调对象。
 enum ResolvedDynamicContent: @unchecked Sendable {
+    /// 已按槽位缩放的静图。
     case image(UIImage)
+    /// 可动画图片：保留 provider 以便 session 期间驱动帧，同时缓存第一帧。
     case animated(AnimatedDynamicSlot)
+    /// 本槽位本轮不渲染。
     case hidden
 }
 
+/// 一次 prepare 得到的全部动态槽位内容，按 vapc `srcId` 索引。
 struct DynamicSnapshot: @unchecked Sendable {
     let contents: [String: ResolvedDynamicContent]
 
+    /// 没有动态槽位时的空快照。
     static let empty = DynamicSnapshot(contents: [:])
 }
 
 /// 准备动态图片 / 文字。不进入视频解码线程，不发网络请求。
 @MainActor
 final class DynamicResolver {
+    /// Swift provider。与 ObjC provider 同时存在时优先 Swift。
     weak var provider: DynamicContentProvider?
     weak var objcProvider: ObjCDynamicContentProvider?
+    /// 递增代数。新的 resolve / cancel 会使进行中的 completion 失效。
     private var generation: UInt64 = 0
+    /// 尚未收口的 completion gate，cancel 时统一失败。
     private var activeGates: [UUID: DynamicResolutionGate] = [:]
 
+    /// 并行解析全部 source。无 provider 时全部 hidden；超时抛 `dynamicContentTimeout`。
     func resolve(
         sources: [VapcSource],
         timeout: TimeInterval = 8,
@@ -67,6 +77,7 @@ final class DynamicResolver {
         }
     }
 
+    /// 作废进行中的 provider 回调，使后续 completion 全部按 cancelled 收口。
     func cancel() {
         generation &+= 1
         let gates = activeGates.values
@@ -76,6 +87,7 @@ final class DynamicResolver {
         }
     }
 
+    /// 解析单个 source：调用 provider，并用超时 Task 兜底。completion 必须且只能生效一次。
     private func resolveOne(
         _ source: VapcSource,
         timeout: TimeInterval,
@@ -164,13 +176,13 @@ final class DynamicResolver {
         }
     }
 
+    /// 把宿主返回的 `DynamicContent` 栅格化成可上传纹理。`imageURL` 视为 hidden，组件不下载。
     private func materialize(
         _ content: DynamicContent,
         source: VapcSource,
         imagePlayback: DynamicImagePlaybackMode
     ) async -> ResolvedDynamicContent {
-        // All branches use UIKit drawing. Serializing them on this @MainActor avoids a
-        // physical-device deadlock between concurrent image and TextKit renderers.
+        // 所有分支都走 UIKit 绘制。串行化到本 @MainActor，避免真机上图片和 TextKit 并发渲染死锁。
         switch content {
         case .hidden, .imageURL:
             return .hidden
@@ -183,6 +195,7 @@ final class DynamicResolver {
         }
     }
 
+    /// 静图直接缩放；若是 SDAnimatedImage 且允许动图，则保留 provider 供 session 驱动。
     static func resolveImage(
         _ image: UIImage,
         source: VapcSource,
@@ -201,6 +214,7 @@ final class DynamicResolver {
         return .image(stillFrame)
     }
 
+    /// 优先问 Swift provider 的 `font(forTag:)`，否则问 ObjC 可选方法。
     private func font(for source: VapcSource) -> UIFont? {
         if let provider {
             return provider.font(forTag: source.tag)
@@ -208,6 +222,7 @@ final class DynamicResolver {
         return objcProvider?.fontForTag?(source.tag)
     }
 
+    /// 把 `.textReplacement` 绘制到槽位尺寸的预乘纹理，过宽时尾部截断。
     private static func rasterizedReplacementText(
         _ text: String,
         source: VapcSource,
@@ -222,8 +237,7 @@ final class DynamicResolver {
         )
     }
 
-    /// Internal seam used by tests to verify that the string-only path really
-    /// consumes the source style instead of merely producing a correctly sized image.
+    /// 测试缝：确认字符串替换路径真正消费了 vapc 的颜色 / 字重，而不只是画出正确尺寸的图。
     static func replacementTextAttributes(
         _ text: String,
         source: VapcSource,
@@ -241,9 +255,8 @@ final class DynamicResolver {
         return TextAttributes(font: font, color: color)
     }
 
-    /// VAP source metadata has slot dimensions, color and a coarse style flag,
-    /// but no font file or exact point size. Shrink the system font at most
-    /// three times; a still-too-wide string is handled by UIKit tail truncation.
+    /// vapc 只有槽位尺寸、颜色和粗粒度样式，没有字体文件或精确字号。
+    /// 系统字体最多缩小三次，仍放不下时交给 UIKit 尾部截断。
     private static func fittedFontSize(text: String, source: VapcSource, bold: Bool) -> CGFloat {
         guard !text.isEmpty else { return 1 }
         var candidate = min(max(source.slotSize.height, 1), 50)
@@ -259,6 +272,7 @@ final class DynamicResolver {
         return max(1, candidate)
     }
 
+    /// 解析 `#RRGGBB` / `#AARRGGBB`。非法值返回 nil，调用方回退白色。
     private static func textColor(_ value: String?) -> UIColor? {
         guard var value, value.hasPrefix("#") else { return nil }
         value.removeFirst()
@@ -283,6 +297,7 @@ final class DynamicResolver {
         }
     }
 
+    /// 在槽位尺寸上居中绘制文字。截断模式画单行；否则按实际字形尺寸居中。
     private static func rasterizedText(
         _ text: String,
         attributes textAttributes: TextAttributes,
@@ -313,9 +328,8 @@ final class DynamicResolver {
                 )
                 return
             }
-            // `draw(at:)` is a single-line operation, so measure the same
-            // layout. A slot-constrained boundingRect would allow wrapping and
-            // could accept a font whose actual single-line glyphs are clipped.
+            // `draw(at:)` 是单行绘制，必须按同样布局测量。
+            // 若用槽位约束的 boundingRect，可能允许换行，导致实际单行字形被裁切。
             let bounds = (text as NSString).size(withAttributes: attributes)
             attributed.draw(at: CGPoint(
                 x: max(0, (source.slotSize.width - bounds.width) / 2),
@@ -324,6 +338,7 @@ final class DynamicResolver {
         }
     }
 
+    /// 按槽位做 AspectFill 居中缩放，保持预乘透明。
     static func resized(_ image: UIImage, source: VapcSource) -> UIImage {
         return renderPremultipliedImage(size: source.slotSize) {
             let target: CGRect
@@ -346,9 +361,8 @@ final class DynamicResolver {
         }
     }
 
-    /// Draw into an 8-bit premultiplied RGBA bitmap so transparent pixels stay
-    /// transparent. `UIGraphicsImageRenderer` can emit extended-range images
-    /// whose `cgImage` flattens alpha, which then shows up as an opaque slot.
+    /// 画到 8-bit 预乘 RGBA bitmap，保证透明像素保持透明。
+    /// `UIGraphicsImageRenderer` 可能产出扩展色域图，其 `cgImage` 会把 alpha 拍成不透明槽位。
     private static func renderPremultipliedImage(size: CGSize, draw: () -> Void) -> UIImage {
         let width = max(1, Int(size.width.rounded()))
         let height = max(1, Int(size.height.rounded()))
@@ -375,12 +389,14 @@ final class DynamicResolver {
     }
 }
 
+/// 保证 provider completion、超时和 cancel 三路只会 resume 一次 continuation。
 private final class DynamicResolutionGate {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<ResolvedDynamicContent, Error>?
     private var result: Result<ResolvedDynamicContent, Error>?
     private var completed = false
 
+    /// 安装 continuation。若结果已先到，立即 resume。
     func install(_ continuation: CheckedContinuation<ResolvedDynamicContent, Error>) {
         let pending: Result<ResolvedDynamicContent, Error>? = lock.withLock {
             if let result { return result }
@@ -390,6 +406,7 @@ private final class DynamicResolutionGate {
         if let pending { continuation.resume(with: pending) }
     }
 
+    /// 第一次调用生效；后续超时 / cancel / provider 重复回调都被忽略。
     func finish(_ result: Result<ResolvedDynamicContent, Error>) {
         let continuation: CheckedContinuation<ResolvedDynamicContent, Error>? = lock.withLock {
             guard !completed else { return nil }

@@ -4,9 +4,11 @@ import AVFoundation
 /// 按 `AudioMode` 执行音频策略，不反向控制视频状态机。
 @MainActor
 final class AudioCoordinator {
+    /// 仅 `embedded` 模式会创建。
     private var player: AVPlayer?
     private var mode: AudioMode = .muted
 
+    /// 非 embedded 或容器无音轨时立即返回。embedded 会创建 AVPlayerItem。
     func prepare(url: URL, mode: AudioMode, containsAudio: Bool) async throws {
         stop()
         self.mode = mode
@@ -27,6 +29,7 @@ final class AudioCoordinator {
         self.player = player
     }
 
+    /// 与视频时钟启动对齐后开始出声。
     func start() {
         guard mode == .embedded else { return }
         player?.play()
@@ -41,6 +44,7 @@ final class AudioCoordinator {
         player?.play()
     }
 
+    /// 循环边界把内嵌音轨 seek 回零。无音频时立即 completion，不阻塞视频。
     func rewind(completion: @MainActor @escaping () -> Void) {
         guard mode == .embedded, let player else {
             completion()
@@ -52,6 +56,7 @@ final class AudioCoordinator {
         }
     }
 
+    /// 释放 AVPlayer，避免后台继续占用音频会话。
     func stop() {
         player?.pause()
         player?.replaceCurrentItem(with: nil)

@@ -46,6 +46,7 @@ public final class PlaybackOptions: NSObject, NSCopying {
         PlaybackOptions()
     }
 
+    /// 使用全部默认值：播一次、静音、AspectFit、结束后清画面、后台挂起、动态图按内容播放。
     @objc public override init() {
         super.init()
     }

@@ -3,21 +3,33 @@ import CoreGraphics
 import AVFoundation
 import CoreMedia
 
+/// 一次 inspection 的完整产物：对外暴露的不可变 metadata，以及内部 vapc 播放布局。
+///
+/// `AssetMetadataCache` 命中后会用 metadata 上挂着的 `playbackDocument` 还原本结构，
+/// 从而跳过 MP4 box / vapc JSON 再解析。
 struct InspectionResult {
+    /// 宿主可见的资源摘要，同时携带内部布局和文件签名。
     let metadata: AssetMetadata
+    /// 渲染所需的完整 vapc 文档，与 `metadata.playbackDocument` 是同一份布局。
     let vapc: VapcDocument
 }
 
 /// 将本地文件转换为不可变 `AssetMetadata`。只在后台运行，结果不得夹带 parser cursor 或文件句柄。
 ///
 /// 对照 `vap-master` 的 `QGMP4Parser` + `QGVAPConfigManager`，但媒体轨交给 AVFoundation 校验。
+/// 解析成功后会把 vapc 布局和文件签名写进 metadata，供 `AssetMetadataCache` 复用。
 final class AssetInspector {
+    /// 单次 inspection 允许读取的最大文件大小，防止异常大文件拖垮解析线程。
     private let maximumFileSize: UInt64 = 2 * 1_024 * 1_024 * 1_024
 
+    /// 只返回宿主可见的 metadata。内部播放仍应调用 `inspectDetails` 以拿到 vapc。
     func inspect(url: URL) async throws -> AssetMetadata {
         (try await inspectDetails(url: url)).metadata
     }
 
+    /// 解析本地 VAP 文件，产出可缓存的 metadata 和完整 vapc 布局。
+    ///
+    /// 会同时采集文件 identity、大小和修改时间，作为后续缓存命中的签名。
     func inspectDetails(url: URL) async throws -> InspectionResult {
         guard url.isFileURL else {
             throw PlaybackError.invalidURL
@@ -25,6 +37,7 @@ final class AssetInspector {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw PlaybackError.fileNotFound
         }
+        // 一次读齐签名字段：大小、是否常规文件、修改时间、稳定文件 identity。
         let resourceValues = try url.resourceValues(forKeys: [
             .fileSizeKey,
             .isRegularFileKey,
@@ -93,6 +106,8 @@ final class AssetInspector {
             vapc = try await legacyDocument(encodedVideoSize: encodedSize, duration: durationSeconds, track: videoTrack)
         }
 
+        // 把完整 vapc 布局和文件签名挂到 metadata 上，供全局缓存与复用播放校验。
+        // 公开 initializer 不会设置这些字段，因此手工摘要对象无法跳过 inspection。
         let metadata = AssetMetadata(
             encodedVideoSize: encodedSize,
             canvasSize: vapc.canvasSize,
@@ -114,6 +129,7 @@ final class AssetInspector {
         return InspectionResult(metadata: metadata, vapc: vapc)
     }
 
+    /// 把 FourCC 转成 `h264` / `hevc`。其他 codec 直接失败。
     private func codecName(_ codec: FourCharCode) throws -> String {
         switch codec {
         case kCMVideoCodecType_H264: return "h264"
@@ -150,6 +166,7 @@ final class AssetInspector {
         )
     }
 
+    /// inspector 与 decoder 的编码尺寸允许 1 像素误差。
     private func approximatelyEqual(_ lhs: CGSize, _ rhs: CGSize) -> Bool {
         abs(lhs.width - rhs.width) < 1 && abs(lhs.height - rhs.height) < 1
     }

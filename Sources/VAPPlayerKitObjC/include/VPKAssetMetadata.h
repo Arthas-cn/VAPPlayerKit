@@ -6,9 +6,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// packed 视频中 Alpha 相对 RGB 的方向。对应 Swift `AlphaMode`。
 typedef NS_ENUM(NSInteger, VPKAlphaMode) {
+    /// Alpha 在左，RGB 在右。
     VPKAlphaModeLeft = 0,
+    /// Alpha 在右，RGB 在左。
     VPKAlphaModeRight,
+    /// Alpha 在上，RGB 在下。
     VPKAlphaModeTop,
+    /// Alpha 在下，RGB 在上。
     VPKAlphaModeBottom
 };
 
@@ -33,9 +37,13 @@ typedef NS_ENUM(NSInteger, VPKAlphaMode) {
 @property (nonatomic, readonly, assign) NSInteger vapVersion;
 /// vapc 动态 source 槽位。
 @property (nonatomic, readonly, copy) NSArray<VPKSourceMetadata *> *dynamicSources;
-/// YES only for metadata returned by this component with its internal VAP layout attached.
+/// 是否可直接用于 metadata 复用播放 API 和全局缓存。
+///
+/// 仅本组件解析出的、带内部 vapc 布局和文件签名的对象为 `YES`。
+/// 手工构造的摘要对象为 `NO`，不能传给 `playWithURL:metadata:options:`。
 @property (nonatomic, readonly, assign, getter=isReusableForPlayback) BOOL reusableForPlayback;
 
+/// 手工构造的摘要对象。不包含内部 vapc 布局，因此 `reusableForPlayback` 为 `NO`。
 - (instancetype)initWithEncodedVideoSize:(CGSize)encodedVideoSize
                               canvasSize:(CGSize)canvasSize
                                alphaMode:(VPKAlphaMode)alphaMode

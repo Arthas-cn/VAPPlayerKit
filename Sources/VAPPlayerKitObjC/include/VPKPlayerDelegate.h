@@ -7,8 +7,11 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// 终态原因。每个 session 最多回调一次 finish 或 fail。
 typedef NS_ENUM(NSInteger, VPKFinishReason) {
+    /// 按 loopCount 播完。
     VPKFinishReasonCompleted = 0,
+    /// 宿主 stop 或后台策略要求停止。
     VPKFinishReasonStopped,
+    /// 被新的播放操作取消。
     VPKFinishReasonCancelled
 };
 

@@ -1,31 +1,49 @@
 import Foundation
 import CoreGraphics
 
+/// vapc 里一个动态 source 槽位。对照 JSON `src` 数组元素。
 struct VapcSource: Sendable {
+    /// vapc `srcType`：`img` 或 `txt`。
     enum Kind: String, Sendable {
         case image = "img"
         case text = "txt"
     }
 
+    /// JSON `srcId`，attachment 通过它引用本槽位。
     let id: String
+    /// 图片或文字。
     let kind: Kind
+    /// 宿主 provider 用来查内容的 tag。
     let tag: String
+    /// 预缩放目标像素尺寸。
     let slotSize: CGSize
+    /// vapc `loadType`，组件不解释下载语义。
     let loadType: String
+    /// vapc `fitType`，当前渲染路径按槽位 AspectFill。
     let fitType: String
+    /// 文字颜色，例如 `#RRGGBB`。
     let color: String?
+    /// 粗体等粗粒度样式标记。
     let style: String?
 }
 
+/// 某一视频帧上的一个动态 overlay。
 struct VapcAttachment: Sendable {
+    /// 对应 `VapcSource.id`。
     let sourceID: String
+    /// 决定走打孔+overlay 还是仅 overlay。
     let kind: VapcSource.Kind
+    /// 绘制顺序，升序表示更靠上。
     let zIndex: Int
+    /// 落在逻辑画布上的矩形。
     let renderRect: CGRect
+    /// packed 视频里作为 mask 的区域。
     let maskRect: CGRect
+    /// mask 旋转角度，仅处理 0/90/180/270。
     let maskRotation: Int
 }
 
+/// vapc `frame` 数组里的一帧及其 attachments。
 struct VapcFrame: Sendable {
     let index: Int
     let attachments: [VapcAttachment]
@@ -39,18 +57,27 @@ struct VapcDocument {
     let canvasSize: CGSize
     /// packed Alpha 布局。
     let alphaMode: AlphaMode
+    /// 可展示帧数。
     let frameCount: Int
+    /// vapc 声明的 fps，仅作参考；真正消费仍用 sample duration。
     let framesPerSecond: Int
+    /// packed 编码尺寸，含 RGB+Alpha。
     let encodedVideoSize: CGSize
+    /// RGB 区域，尺寸必须等于 `canvasSize`。
     let rgbRect: CGRect
+    /// Alpha 区域，与 RGB 不得重叠。
     let alphaRect: CGRect
+    /// 动态 source 槽位。
     let sources: [VapcSource]
+    /// 按帧序号索引的 attachments；没有 overlay 的帧可以缺省。
     let frames: [Int: [VapcAttachment]]
 }
 
 /// 读取 MP4 中的 vapc box。对照 `vap-master/tool` 的 JSON 描述和 iOS `QGVAPConfigModel`。
 final class VapcReader {
+    /// vapc JSON payload 上限 8 MiB，防止异常 box 拖垮解析。
     static let maximumJSONSize = 8 * 1_024 * 1_024
+    /// 单个尺寸字段上限，防止异常 JSON 申请超大纹理。
     private let maximumDimension: CGFloat = 16_384
     private let maximumSources = 256
     private let maximumFrames = 100_000
@@ -175,6 +202,7 @@ final class VapcReader {
         )
     }
 
+    /// 读取必填整数字段。
     private func integer(_ dictionary: [String: Any], _ key: String) throws -> Int {
         guard let number = dictionary[key] as? NSNumber else {
             throw invalid("Missing numeric field \(key).")
@@ -186,6 +214,7 @@ final class VapcReader {
         return number.intValue
     }
 
+    /// 读取 (0, maximum] 的正整数，用于帧数、fps 等。
     private func positiveInteger(_ dictionary: [String: Any], _ key: String, maximum: Int) throws -> Int {
         let value = try integer(dictionary, key)
         guard value > 0, value <= maximum else {
@@ -194,6 +223,7 @@ final class VapcReader {
         return value
     }
 
+    /// 读取宽高，拒绝非有限或超大尺寸。
     private func size(_ dictionary: [String: Any], width: String, height: String) throws -> CGSize {
         guard
             let widthValue = dictionary[width] as? NSNumber,
@@ -208,6 +238,7 @@ final class VapcReader {
         return result
     }
 
+    /// 读取 `[x, y, w, h]` 且必须完全落在 `bounds` 内。
     private func rect(_ value: Any?, name: String, within bounds: CGSize) throws -> CGRect {
         guard let values = value as? [NSNumber], values.count == 4 else {
             throw invalid("\(name) must contain four numbers.")
@@ -231,6 +262,7 @@ final class VapcReader {
         return rect
     }
 
+    /// 由 Alpha / RGB 矩形的相对位置推断 `AlphaMode`；重叠则失败。
     private func alphaMode(alphaRect: CGRect, rgbRect: CGRect) throws -> AlphaMode {
         if alphaRect.maxX <= rgbRect.minX { return .left }
         if alphaRect.minX >= rgbRect.maxX { return .right }
@@ -239,15 +271,18 @@ final class VapcReader {
         throw invalid("Alpha and RGB regions overlap or have an unknown layout.")
     }
 
+    /// 宽高必须为正有限值且不超过 `maximumDimension`。
     private func validDimension(_ value: CGFloat) -> Bool {
         value.isFinite && value > 0 && value <= maximumDimension
     }
 
+    /// 非空且不超过 1 KiB 的字符串；过长 tag / id 直接丢弃。
     private func nonEmptyString(_ value: Any?) -> String? {
         guard let value = value as? String, !value.isEmpty, value.utf8.count <= 1_024 else { return nil }
         return value
     }
 
+    /// 把 vapc 解析失败统一包装成 `PlaybackError.invalidVapc`。
     private func invalid(_ reason: String) -> PlaybackError {
         .invalidVapc(reason: reason)
     }

@@ -5,11 +5,14 @@ import CoreMedia
 ///
 /// 对照 `vap-master` 的 `QGAnimatedImageBufferManager`，但主路径不用「可变数组再 sort」。
 final class FrameRingBuffer {
+    /// 槽位数。默认 6，不得为 0。
     private let capacity: Int
+    /// 环形数组。出队后立刻置 nil，避免 pixel buffer 滞留。
     private var storage: [DecodedFrame?]
     private var head = 0
     private var tail = 0
     private var storedCount = 0
+    /// 保护存储，并在满/空时让 decoder 等待。
     private let condition = NSCondition()
     private var cancelled = false
 
@@ -25,6 +28,7 @@ final class FrameRingBuffer {
     /// 达到容量后 producer 应停止提交 sample。
     var isFull: Bool { condition.withLock { storedCount >= capacity } }
 
+    /// stop 后 `enqueueWaiting` 会立即返回 false。
     var isCancelled: Bool { condition.withLock { cancelled } }
 
     /// 按 PTS 单调入队。满则返回 false。
@@ -77,6 +81,7 @@ final class FrameRingBuffer {
         }
     }
 
+    /// 新循环开始前清空并允许再次入队。
     func reset() {
         condition.withLock {
             cancelled = false
@@ -88,6 +93,7 @@ final class FrameRingBuffer {
         }
     }
 
+    /// 唤醒因满缓冲而阻塞的 decoder，并拒绝后续入队。
     func cancelWaiting() {
         condition.withLock {
             cancelled = true
@@ -95,6 +101,7 @@ final class FrameRingBuffer {
         }
     }
 
+    /// 要求 PTS 单调递增。乱序帧拒绝入队，避免消费端再排序。
     private func insert(_ frame: DecodedFrame) -> Bool {
         if let previous = lastFrame() {
             guard CMTimeCompare(previous.presentationTime, frame.presentationTime) <= 0 else { return false }
@@ -105,6 +112,7 @@ final class FrameRingBuffer {
         return true
     }
 
+    /// 取出最旧一帧，并 signal 可能正在等待的 producer。
     private func removeFirst() -> DecodedFrame? {
         guard storedCount > 0 else { return nil }
         let frame = storage[head]
@@ -115,10 +123,12 @@ final class FrameRingBuffer {
         return frame
     }
 
+    /// 队头，即最早入队的一帧。
     private func firstFrame() -> DecodedFrame? {
         storedCount > 0 ? storage[head] : nil
     }
 
+    /// 队尾，用于校验新帧 PTS 单调。
     private func lastFrame() -> DecodedFrame? {
         guard storedCount > 0 else { return nil }
         return storage[(tail - 1 + capacity) % capacity]
