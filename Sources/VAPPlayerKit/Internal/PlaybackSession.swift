@@ -102,16 +102,21 @@ final class PlaybackSession {
         prepareStartedAt = CACurrentMediaTime()
         do {
             let inspection: InspectionResult
+            let reusedMetadata: AssetMetadata?
             if let suppliedMetadata {
-                inspection = try reusableInspection(from: suppliedMetadata)
+                inspection = try AssetMetadataCache.reusableInspection(from: suppliedMetadata, for: url)
+                AssetMetadataCache.shared.insert(suppliedMetadata, for: url)
+                reusedMetadata = suppliedMetadata
             } else {
-                inspection = try await inspector.inspectDetails(url: url)
+                let resolution = try await AssetMetadataCache.shared.resolve(url: url, inspector: inspector)
+                inspection = resolution.inspection
+                reusedMetadata = resolution.reusedMetadata
             }
             try ensureActive()
             let sourceMetadata = try await frameSource.prepare()
             try ensureActive()
-            if let suppliedMetadata {
-                try validateReusableFileSignature(suppliedMetadata)
+            if let reusedMetadata {
+                try AssetMetadataCache.validateReusableFileSignature(reusedMetadata, for: url)
             }
             guard approximatelyEqual(sourceMetadata.encodedVideoSize, inspection.metadata.encodedVideoSize),
                   sourceMetadata.codec == inspection.metadata.codec else {
@@ -143,8 +148,8 @@ final class PlaybackSession {
                 containsAudio: inspection.metadata.containsAudio
             )
             try ensureActive()
-            if let suppliedMetadata {
-                try validateReusableFileSignature(suppliedMetadata)
+            if let reusedMetadata {
+                try AssetMetadataCache.validateReusableFileSignature(reusedMetadata, for: url)
             }
             self.inspection = inspection
             metadata = inspection.metadata
@@ -155,49 +160,6 @@ final class PlaybackSession {
         } catch {
             fail(error)
             throw error
-        }
-    }
-
-    private func reusableInspection(from metadata: AssetMetadata) throws -> InspectionResult {
-        guard metadata.sourceURL == url.standardizedFileURL,
-              let document = metadata.playbackDocument else {
-            throw PlaybackError.invalidVapc(
-                reason: "AssetMetadata is not reusable or belongs to a different local URL."
-            )
-        }
-        try validateReusableFileSignature(metadata)
-        return InspectionResult(metadata: metadata, vapc: document)
-    }
-
-    private func validateReusableFileSignature(_ metadata: AssetMetadata) throws {
-        guard metadata.sourceURL == url.standardizedFileURL else {
-            throw PlaybackError.invalidVapc(
-                reason: "AssetMetadata is not reusable or belongs to a different local URL."
-            )
-        }
-        let values = try url.resourceValues(forKeys: [
-            .fileSizeKey,
-            .isRegularFileKey,
-            .contentModificationDateKey,
-            .fileResourceIdentifierKey
-        ])
-        guard values.isRegularFile == true,
-              let expectedSize = metadata.sourceFileSize,
-              let actualSize = values.fileSize,
-              let expectedDate = metadata.sourceModificationDate,
-              let actualDate = values.contentModificationDate,
-              let expectedIdentifier = metadata.sourceFileIdentifier,
-              let actualIdentifier = values.fileResourceIdentifier as? Data else {
-            throw PlaybackError.invalidMP4(reason: "AssetMetadata file signature is unavailable.")
-        }
-        if expectedIdentifier != actualIdentifier {
-            throw PlaybackError.invalidMP4(reason: "AssetMetadata is stale because the file identity changed.")
-        }
-        if expectedSize != Int64(actualSize) {
-            throw PlaybackError.invalidMP4(reason: "AssetMetadata is stale because the file size changed.")
-        }
-        if expectedDate != actualDate {
-            throw PlaybackError.invalidMP4(reason: "AssetMetadata is stale because the file changed.")
         }
     }
 

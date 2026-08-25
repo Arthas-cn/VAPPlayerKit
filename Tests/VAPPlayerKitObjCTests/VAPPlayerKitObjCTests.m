@@ -20,6 +20,17 @@
     XCTAssertNotNil(NSClassFromString(@"VPKPlayerView"));
     XCTAssertNotNil(NSClassFromString(@"VPKPlaybackOptions"));
     XCTAssertNotNil(NSClassFromString(@"VPKAssetMetadata"));
+    XCTAssertNotNil(NSClassFromString(@"VPKAssetMetadataCache"));
+}
+
+- (void)testAssetMetadataCacheFacade {
+    VPKAssetMetadataCache *cache = VPKAssetMetadataCache.sharedCache;
+    XCTAssertNotNil(cache);
+    XCTAssertEqual(cache.countLimit, 20);
+    cache.countLimit = 0;
+    XCTAssertEqual(cache.countLimit, 0);
+    [cache removeAll];
+    cache.countLimit = 20;
 }
 
 - (void)testPlayerViewCanBeCreatedFromObjectiveC {

@@ -66,6 +66,8 @@ func resolve(
 
 Metadata 复用会在解码轨准备前后校验稳定文件 identity、文件大小和修改时间；调用方仍应把本地资源视为不可变，在 prepare/play/stop 生命周期内不要替换或改写该路径。需要对不受信任的并发写入提供强一致性时，应先由宿主完成原子下载与缓存发布，再交给播放器。
 
+组件会自动使用全局 `AssetMetadataCache` 复用相同本地 URL 的解析结果，默认最多缓存 20 个 metadata。缓存只存在于当前进程内，遇到文件 identity、大小或修改时间变化时会自动丢弃旧值并重新解析。宿主可以通过 `AssetMetadataCache.shared.countLimit` 调整容量，或调用 `remove(url:)` / `removeAll()` 清理缓存；设置容量为 0 会禁用并清空缓存。
+
 ## Objective-C
 
 ```objc
@@ -78,6 +80,9 @@ VPKPlaybackOptions *options = VPKPlaybackOptions.defaultOptions;
 
 Objective-C 也可以将同一 URL 的 `VPKAssetMetadata` 传给
 `playWithURL:metadata:options:`；仅 `reusableForPlayback == YES` 的 metadata 可用于该优化入口。
+
+全局缓存可通过 `VPKAssetMetadataCache.sharedCache.countLimit` 调整，或调用
+`removeMetadataForURL:` / `removeAll` 清理。
 
 `VPKPlayerViewDelegate` 提供开始、metadata、完成和失败回调；动态内容可通过
 `VPKDynamicContentProvider` 注入。文字槽位在 completion 中返回 `replacementText`，

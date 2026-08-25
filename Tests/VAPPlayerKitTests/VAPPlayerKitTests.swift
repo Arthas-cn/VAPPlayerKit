@@ -324,6 +324,125 @@ final class VAPPlayerKitTests: XCTestCase {
     }
 
     @MainActor
+    func testGlobalMetadataCacheIsUsedAcrossPlayerViews() async throws {
+        let url = VAPFixture.url(VAPFixture.defaultPlayableName)
+        let cache = AssetMetadataCache.shared
+        let originalLimit = cache.countLimit
+        cache.removeAll()
+        cache.countLimit = 20
+        defer {
+            cache.removeAll()
+            cache.countLimit = originalLimit
+        }
+
+        let firstPlayer = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
+        let firstMetadata = try await firstPlayer.prepare(url: url)
+        firstPlayer.clear()
+
+        let secondPlayer = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
+        let secondMetadata = try await secondPlayer.prepare(url: url)
+        secondPlayer.clear()
+
+        XCTAssertTrue(firstMetadata === secondMetadata)
+    }
+
+    @MainActor
+    func testExplicitMetadataSeedsGlobalMetadataCache() async throws {
+        let url = VAPFixture.url(VAPFixture.defaultPlayableName)
+        let cache = AssetMetadataCache.shared
+        let originalLimit = cache.countLimit
+        cache.removeAll()
+        cache.countLimit = 20
+        defer {
+            cache.removeAll()
+            cache.countLimit = originalLimit
+        }
+
+        let suppliedMetadata = try await AssetInspector().inspect(url: url)
+        let firstPlayer = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
+        _ = try await firstPlayer.prepare(url: url, metadata: suppliedMetadata)
+        firstPlayer.clear()
+
+        let secondPlayer = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
+        let cachedMetadata = try await secondPlayer.prepare(url: url)
+        secondPlayer.clear()
+
+        XCTAssertTrue(cachedMetadata === suppliedMetadata)
+    }
+
+    @MainActor
+    func testGlobalMetadataCacheCoalescesConcurrentInspections() async throws {
+        let url = VAPFixture.url(VAPFixture.defaultPlayableName)
+        let cache = AssetMetadataCache.shared
+        let originalLimit = cache.countLimit
+        cache.removeAll()
+        cache.countLimit = 20
+        defer {
+            cache.removeAll()
+            cache.countLimit = originalLimit
+        }
+
+        let firstPlayer = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
+        let secondPlayer = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
+        async let firstMetadata = firstPlayer.prepare(url: url)
+        async let secondMetadata = secondPlayer.prepare(url: url)
+        let (first, second) = try await (firstMetadata, secondMetadata)
+        firstPlayer.clear()
+        secondPlayer.clear()
+
+        XCTAssertTrue(first === second)
+    }
+
+    @MainActor
+    func testGlobalMetadataCacheReparsesAfterFileSignatureChanges() async throws {
+        let fixture = VAPFixture.url(VAPFixture.defaultPlayableName)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vap-cache-\(UUID().uuidString).mp4")
+        let replacementURL = url.deletingPathExtension().appendingPathExtension("replacement.mp4")
+        try FileManager.default.copyItem(at: fixture, to: url)
+        defer {
+            AssetMetadataCache.shared.remove(url: url)
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        let firstPlayer = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
+        let firstMetadata = try await firstPlayer.prepare(url: url)
+        firstPlayer.clear()
+        try FileManager.default.copyItem(at: fixture, to: replacementURL)
+        _ = try FileManager.default.replaceItemAt(url, withItemAt: replacementURL)
+
+        let secondPlayer = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
+        let secondMetadata = try await secondPlayer.prepare(url: url)
+        secondPlayer.clear()
+
+        XCTAssertFalse(firstMetadata === secondMetadata)
+        XCTAssertEqual(secondMetadata.sourceURL, url.standardizedFileURL)
+    }
+
+    func testGlobalMetadataCacheControlsAndZeroLimit() async throws {
+        let url = VAPFixture.url(VAPFixture.defaultPlayableName)
+        let metadata = try await AssetInspector().inspect(url: url)
+        let cache = AssetMetadataCache.shared
+        let originalLimit = cache.countLimit
+        defer {
+            cache.removeAll()
+            cache.countLimit = originalLimit
+        }
+
+        cache.removeAll()
+        cache.countLimit = 20
+        cache.insert(metadata, for: url)
+        XCTAssertTrue(cache.metadata(for: url) === metadata)
+
+        cache.remove(url: url)
+        XCTAssertNil(cache.metadata(for: url))
+
+        cache.countLimit = 0
+        cache.insert(metadata, for: url)
+        XCTAssertNil(cache.metadata(for: url))
+    }
+
+    @MainActor
     func testReusableMetadataRejectsDifferentURLAndManualSummary() async throws {
         let sourceURL = VAPFixture.url(VAPFixture.defaultPlayableName)
         let metadata = try await AssetInspector().inspect(url: sourceURL)
