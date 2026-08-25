@@ -76,18 +76,6 @@ final class ViewController: UIViewController {
         definesPresentationContext = true
     }
 
-    private var isSearching: Bool {
-        !(searchController.searchBar.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty
-    }
-
-    private var animatedSceneFixture: VAPFixture? {
-        fixtures.first { $0.fileName.compare("1.mp4", options: .caseInsensitive) == .orderedSame }
-    }
-
-    private var showsAnimatedScene: Bool {
-        !isSearching && animatedSceneFixture != nil
-    }
-
     @objc private func reloadFixtures() {
         fixtures = FixtureCatalog.scan()
         tableView.accessibilityValue = fixtures.map(\.identifier).joined(separator: ",")
@@ -125,37 +113,17 @@ final class ViewController: UIViewController {
 }
 
 extension ViewController: UITableViewDataSource, UITableViewDelegate {
-    func numberOfSections(in tableView: UITableView) -> Int {
-        showsAnimatedScene ? 2 : 1
-    }
-
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if showsAnimatedScene, section == 0 { return 1 }
-        return filteredFixtures.count
+        filteredFixtures.count
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        if showsAnimatedScene, section == 0 {
-            return "专项场景 · 1.mp4 动图槽位"
-        }
-        return "已扫描 \(fixtures.count) 个资源 · 当前显示 \(filteredFixtures.count) 个"
+        "已扫描 \(fixtures.count) 个资源 · 当前显示 \(filteredFixtures.count) 个"
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: FixtureCell.reuseIdentifier, for: indexPath)
         guard let cell = cell as? FixtureCell else { return cell }
-        if showsAnimatedScene, indexPath.section == 0, let fixture = animatedSceneFixture {
-            cell.configure(
-                with: fixture,
-                index: 0,
-                title: "动图槽位测试",
-                subtitle: "1.mp4 · 仅 GIF / WebP",
-                accessibilityID: "catalog.item.animated",
-                previewID: "catalog.preview.animated",
-                imagePolicy: .animatedOnly
-            )
-            return cell
-        }
         let fixture = filteredFixtures[indexPath.row]
         cell.configure(with: fixture, index: fixtures.firstIndex(of: fixture) ?? indexPath.row)
         return cell
@@ -163,13 +131,6 @@ extension ViewController: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        if showsAnimatedScene, indexPath.section == 0, let fixture = animatedSceneFixture {
-            navigationController?.pushViewController(
-                PlaybackDetailViewController(fixture: fixture, scenario: .animatedSlots),
-                animated: true
-            )
-            return
-        }
         navigationController?.pushViewController(
             PlaybackDetailViewController(fixture: filteredFixtures[indexPath.row]),
             animated: true
@@ -318,6 +279,7 @@ private final class FixtureCell: UITableViewCell, PlayerDelegate, DynamicContent
         isPreviewActive = true
         let options = PlaybackOptions.defaultOptions
         options.loopCount = 0
+        options.audioMode = .muted
         options.clearsAfterFinish = false
         options.contentMode = .scaleAspectFit
         if imagePolicy == .animatedOnly {

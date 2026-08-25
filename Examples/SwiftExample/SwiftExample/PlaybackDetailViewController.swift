@@ -2,14 +2,9 @@ import UIKit
 import VAPPlayerKit
 
 final class PlaybackDetailViewController: UIViewController {
-    enum Scenario {
-        case catalog
-        case animatedSlots
-    }
-
     private let fixture: VAPFixture
-    private let scenario: Scenario
     private var animatedGiftIndex: Int
+    private var stillGiftIndex: Int
     private let playerView = PlayerView()
     private let diagnostics = PlaybackDiagnostics()
     private let scrollView = UIScrollView()
@@ -43,10 +38,10 @@ final class PlaybackDetailViewController: UIViewController {
     private var hasAutoPlayed = false
     private var replacementTextIndex = 0
 
-    init(fixture: VAPFixture, scenario: Scenario = .catalog, animatedGiftIndex: Int = 0) {
+    init(fixture: VAPFixture) {
         self.fixture = fixture
-        self.scenario = scenario
-        self.animatedGiftIndex = animatedGiftIndex
+        self.animatedGiftIndex = GiftCatalog.randomGiftIndex(policy: .animatedOnly)
+        self.stillGiftIndex = GiftCatalog.randomGiftIndex(policy: .stillOnly)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -64,9 +59,10 @@ final class PlaybackDetailViewController: UIViewController {
         bindDiagnostics()
         diagnostics.append("DEVICE", "\(UIDevice.current.model), iOS \(UIDevice.current.systemVersion)")
         diagnostics.append("ASSET", "\(fixture.shortIdentifier), \(fixture.formattedSize)")
-        if scenario == .animatedSlots {
-            diagnostics.append("SCENE", "1.mp4 animated slots · GIF / WebP")
-        }
+        diagnostics.append(
+            "GIFT",
+            "animated \(GiftCatalog.animatedGiftDisplayName(at: animatedGiftIndex)), still \(GiftCatalog.stillGiftDisplayName(at: stillGiftIndex))"
+        )
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -88,7 +84,7 @@ final class PlaybackDetailViewController: UIViewController {
     }
 
     private func configureNavigation() {
-        title = scenario == .animatedSlots ? "动图槽位" : "Playback Lab"
+        title = "Playback Lab"
         navigationItem.largeTitleDisplayMode = .never
         view.backgroundColor = UIColor(red: 0.03, green: 0.04, blue: 0.065, alpha: 1)
         navigationItem.rightBarButtonItem = UIBarButtonItem(
@@ -123,9 +119,7 @@ final class PlaybackDetailViewController: UIViewController {
         contentStack.addArrangedSubview(makeAssetHeader())
         contentStack.addArrangedSubview(previewCard)
         contentStack.addArrangedSubview(makeOptionsCard())
-        if scenario == .animatedSlots {
-            contentStack.addArrangedSubview(makeGiftSwitcherCard())
-        }
+        contentStack.addArrangedSubview(makeGiftSwitcherCard())
         contentStack.addArrangedSubview(makeTextSampleCard())
         contentStack.addArrangedSubview(makeControlsCard())
         contentStack.addArrangedSubview(makeDiagnosticsCard())
@@ -169,21 +163,16 @@ final class PlaybackDetailViewController: UIViewController {
 
     private func makeAssetHeader() -> UIView {
         let eyebrow = UILabel()
-        eyebrow.text = {
-            if scenario == .animatedSlots { return "ANIMATED SLOT LAB · 1.MP4" }
-            return fixture.looksLikeMedia ? "LOCAL VAP FIXTURE" : "NEGATIVE FIXTURE"
-        }()
+        eyebrow.text = fixture.looksLikeMedia ? "LOCAL VAP FIXTURE" : "NEGATIVE FIXTURE"
         eyebrow.font = .systemFont(ofSize: 11, weight: .bold)
         eyebrow.textColor = UIColor(red: 0.42, green: 0.82, blue: 1, alpha: 1)
         let name = UILabel()
-        name.text = scenario == .animatedSlots ? "GIF / WebP 槽位替换" : fixture.shortIdentifier
+        name.text = fixture.shortIdentifier
         name.font = .monospacedSystemFont(ofSize: 19, weight: .semibold)
         name.textColor = .white
         name.adjustsFontSizeToFitWidth = true
         let detail = UILabel()
-        detail.text = scenario == .animatedSlots
-            ? "\(fixture.formattedSize) · 仅使用 GIF / WebP · 默认播动图"
-            : "\(fixture.formattedSize) · 本地文件 · 已自动播放，可用下方控制测试"
+        detail.text = "\(fixture.formattedSize) · 本地文件 · 已自动播放，可用下方控制测试"
         detail.font = .systemFont(ofSize: 13)
         detail.textColor = UIColor(white: 0.62, alpha: 1)
         let stack = UIStackView(arrangedSubviews: [eyebrow, name, detail])
@@ -194,11 +183,11 @@ final class PlaybackDetailViewController: UIViewController {
 
     private func makeOptionsCard() -> UIView {
         contentModeControl.selectedSegmentIndex = 0
-        loopControl.selectedSegmentIndex = 0
-        audioControl.selectedSegmentIndex = 0
+        loopControl.selectedSegmentIndex = 2
+        audioControl.selectedSegmentIndex = 1
         backgroundControl.selectedSegmentIndex = 0
         dynamicImageControl.selectedSegmentIndex = 1
-        textOverflowControl.selectedSegmentIndex = 0
+        textOverflowControl.selectedSegmentIndex = 1
         marqueeSpeedControl.selectedSegmentIndex = 2
         marqueeDelayControl.selectedSegmentIndex = 1
         clearsSwitch.isOn = true
@@ -223,7 +212,8 @@ final class PlaybackDetailViewController: UIViewController {
         marqueeSpeedControl.accessibilityIdentifier = "detail.marqueeSpeed"
         marqueeDelayControl.accessibilityIdentifier = "detail.marqueeDelay"
         clearsSwitch.accessibilityIdentifier = "detail.clearsAfterFinish"
-        return makeCard(title: "播放参数", rows: [
+        dynamicImageControl.addTarget(self, action: #selector(dynamicImageModeChanged), for: .valueChanged)
+        return makeCard(title: "播放参数", accessory: "切换参数需要点击播放才生效", rows: [
             makeOptionRow(title: "画布模式", control: contentModeControl),
             makeOptionRow(title: "循环次数", control: loopControl),
             makeOptionRow(title: "音频策略", control: audioControl),
@@ -256,7 +246,7 @@ final class PlaybackDetailViewController: UIViewController {
         giftNameLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         previousGiftButton.setContentHuggingPriority(.required, for: .horizontal)
         nextGiftButton.setContentHuggingPriority(.required, for: .horizontal)
-        return makeCard(title: "切换动图", rows: [row])
+        return makeCard(title: "切换图片", rows: [row])
     }
 
     private func makeTextSampleCard() -> UIView {
@@ -295,7 +285,9 @@ final class PlaybackDetailViewController: UIViewController {
     }
 
     private func refreshGiftName() {
-        giftNameLabel.text = GiftCatalog.animatedGiftDisplayName(at: animatedGiftIndex)
+        giftNameLabel.text = usesAnimatedGift
+            ? GiftCatalog.animatedGiftDisplayName(at: animatedGiftIndex)
+            : GiftCatalog.stillGiftDisplayName(at: stillGiftIndex)
     }
 
     private func refreshTextSampleName() {
@@ -382,11 +374,11 @@ final class PlaybackDetailViewController: UIViewController {
     }
 
     @objc private func previousGiftTapped() {
-        cycleAnimatedGift(by: -1)
+        cycleGift(by: -1)
     }
 
     @objc private func nextGiftTapped() {
-        cycleAnimatedGift(by: 1)
+        cycleGift(by: 1)
     }
 
     @objc private func previousTextTapped() {
@@ -397,11 +389,35 @@ final class PlaybackDetailViewController: UIViewController {
         cycleReplacementText(by: 1)
     }
 
-    private func cycleAnimatedGift(by delta: Int) {
-        let count = max(GiftCatalog.animatedGiftCount(), 1)
-        animatedGiftIndex = (animatedGiftIndex + delta % count + count) % count
+    @objc private func dynamicImageModeChanged() {
         refreshGiftName()
-        diagnostics.append("ACTION", "switch gift \(GiftCatalog.animatedGiftDisplayName(at: animatedGiftIndex))")
+    }
+
+    private var usesAnimatedGift: Bool {
+        dynamicImageControl.selectedSegmentIndex == 1
+    }
+
+    private var currentImagePolicy: GiftCatalog.ImagePolicy {
+        usesAnimatedGift ? .animatedOnly : .stillOnly
+    }
+
+    private var currentImageIndex: Int {
+        usesAnimatedGift ? animatedGiftIndex : stillGiftIndex
+    }
+
+    private func cycleGift(by delta: Int) {
+        if usesAnimatedGift {
+            let count = max(GiftCatalog.animatedGiftCount(), 1)
+            animatedGiftIndex = (animatedGiftIndex + delta % count + count) % count
+        } else {
+            let count = max(GiftCatalog.stillGiftCount(), 1)
+            stillGiftIndex = (stillGiftIndex + delta % count + count) % count
+        }
+        refreshGiftName()
+        diagnostics.append(
+            "ACTION",
+            "switch \(usesAnimatedGift ? "animated" : "still") gift \(giftNameLabel.text ?? "")"
+        )
         cancelOperation()
         stateLabel.text = "PREPARING"
         playerView.play(url: fixture.url, options: currentOptions())
@@ -585,12 +601,31 @@ final class PlaybackDetailViewController: UIViewController {
         present(controller, animated: true)
     }
 
-    private func makeCard(title: String, rows: [UIView]) -> UIView {
+    private func makeCard(title: String, accessory: String? = nil, rows: [UIView]) -> UIView {
         let titleLabel = UILabel()
         titleLabel.text = title
         titleLabel.font = .systemFont(ofSize: 15, weight: .bold)
         titleLabel.textColor = .white
-        let stack = UIStackView(arrangedSubviews: [titleLabel] + rows)
+        titleLabel.setContentHuggingPriority(.required, for: .horizontal)
+        titleLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        let header: UIView
+        if let accessory {
+            let hintLabel = UILabel()
+            hintLabel.text = accessory
+            hintLabel.font = .systemFont(ofSize: 11, weight: .regular)
+            hintLabel.textColor = UIColor(white: 0.52, alpha: 1)
+            hintLabel.textAlignment = .right
+            hintLabel.numberOfLines = 2
+            hintLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            let row = UIStackView(arrangedSubviews: [titleLabel, hintLabel])
+            row.axis = .horizontal
+            row.alignment = .firstBaseline
+            row.spacing = 8
+            header = row
+        } else {
+            header = titleLabel
+        }
+        let stack = UIStackView(arrangedSubviews: [header] + rows)
         stack.axis = .vertical
         stack.spacing = 12
         let card = UIView()
@@ -686,12 +721,14 @@ extension PlaybackDetailViewController: DynamicContentProvider {
         diagnostics.append(
             "DYNAMIC",
             "resolve \(tag) (\(source.kind == .text ? "txt" : "img")), \(Int(source.slotSize.width))×\(Int(source.slotSize.height))"
-                + (source.kind == .text ? ", \(GiftCatalog.replacementSampleDisplayName(at: replacementTextIndex))" : "")
+                + (source.kind == .text
+                    ? ", \(GiftCatalog.replacementSampleDisplayName(at: replacementTextIndex))"
+                    : ", \(giftNameLabel.text ?? "")")
         )
         completion(GiftCatalog.content(
             for: source,
-            imagePolicy: scenario == .animatedSlots ? .animatedOnly : .mixed,
-            animatedIndex: animatedGiftIndex,
+            imagePolicy: currentImagePolicy,
+            imageIndex: currentImageIndex,
             replacementIndex: replacementTextIndex
         ), nil)
     }

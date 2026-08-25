@@ -45,7 +45,7 @@ typedef NS_ENUM(NSInteger, VPKDynamicTextOverflowMode) {
 @property (nonatomic, assign) NSInteger loopCount;
 /// 按 `canvasSize` 计算的内容缩放方式，不用编码分辨率。
 @property (nonatomic, assign) UIViewContentMode contentMode;
-/// 音频策略，默认静音。
+/// 音频策略，默认播放内嵌音轨。
 @property (nonatomic, assign) VPKAudioMode audioMode;
 /// 结束后是否清掉当前画面。
 @property (nonatomic, assign) BOOL clearsAfterFinish;

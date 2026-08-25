@@ -33,6 +33,8 @@ options.loopCount = 1
 player.play(url: fileURL, options: options)
 ```
 
+`PlaybackOptions.defaultOptions` 默认播放 MP4 内嵌音轨；需要静音时设置 `options.audioMode = .muted`。
+
 需要先读取画布、时长或动态槽位时，可使用异步准备接口：
 
 ```swift
@@ -108,8 +110,8 @@ Objective-C provider 也可实现可选的 `fontForTag:`，为文字 tag 指定 
 
 Swift 示例 App 会把 `Tests/Fixtures/VAP` 打进 Bundle，并在启动时自动扫描全部 MP4：
 
-- 首页按文件展示素材清单，每行内嵌播放器并在可见时自动循环预览；负向 fixture 只显示错误标识。顶部专项场景用 `1.mp4` 专门验证 GIF / WebP 槽位动图。
-- 点击素材进入 Playback Lab 后自动播放，也可继续验证 prepare / play / pause / resume / stop / clear、三种缩放、循环、音频、后台策略、槽位静图/动图、文字截断/跑马灯、动态内容及实时指标。
+- 首页按文件展示素材清单，每行内嵌播放器并在可见时自动循环预览（列表预览强制静音）；负向 fixture 只显示错误标识。
+- 点击素材进入 Playback Lab 后自动播放，默认为无限循环、内嵌音频、槽位动图和文字跑马灯。也可继续验证 prepare / play / pause / resume / stop / clear、三种缩放、循环、音频、后台策略、槽位静图/动图、文字截断/跑马灯、动态内容及实时指标。
 - Swift Demo 引入 SDWebImage 与 SDWebImageWebPCoder，可播放 GIF / 动画 WebP；Objective-C Demo 不引入这两个库，同样资源只显示静图。
 - Playback Lab 可运行单素材自动冒烟测试并导出诊断报告；首页工具栏可运行全部 Bundle 素材的真机批测，每个合法素材至少播放 `min(1 秒, 实际时长)`。
 

@@ -32,8 +32,8 @@ public final class PlaybackOptions: NSObject, NSCopying {
     }
     /// 按 `canvasSize` 计算的内容缩放方式，不用编码分辨率。
     @objc public var contentMode: UIView.ContentMode = .scaleAspectFit
-    /// 音频策略，默认静音透明特效。
-    @objc public var audioMode: AudioMode = .muted
+    /// 音频策略，默认播放 MP4 内嵌音轨。
+    @objc public var audioMode: AudioMode = .embedded
     /// 结束后是否清掉当前画面和可回收 GPU 资源。
     @objc public var clearsAfterFinish: Bool = true
     /// 后台 / 离屏时是挂起还是停止。
@@ -73,7 +73,7 @@ public final class PlaybackOptions: NSObject, NSCopying {
         PlaybackOptions()
     }
 
-    /// 使用全部默认值：播一次、静音、AspectFit、结束后清画面、后台挂起、动态图按内容播放、文字尾部截断。
+    /// 使用全部默认值：播一次、内嵌音频、AspectFit、结束后清画面、后台挂起、动态图按内容播放、文字尾部截断。
     @objc public override init() {
         super.init()
     }

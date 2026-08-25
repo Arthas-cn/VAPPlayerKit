@@ -10,7 +10,7 @@
 - (void)testPlaybackOptionsDefaults {
     VPKPlaybackOptions *options = VPKPlaybackOptions.defaultOptions;
     XCTAssertEqual(options.loopCount, 1);
-    XCTAssertEqual(options.audioMode, VPKAudioModeMuted);
+    XCTAssertEqual(options.audioMode, VPKAudioModeEmbedded);
     XCTAssertTrue(options.clearsAfterFinish);
     XCTAssertEqual(options.dynamicImagePlaybackMode, VPKDynamicImagePlaybackModeAnimated);
     XCTAssertEqual(options.dynamicTextOverflowMode, VPKDynamicTextOverflowModeTruncate);

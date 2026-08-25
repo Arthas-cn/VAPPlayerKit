@@ -8,7 +8,7 @@ final class VAPPlayerKitTests: XCTestCase {
         let options = PlaybackOptions.defaultOptions
         XCTAssertEqual(options.loopCount, 1)
         XCTAssertEqual(options.contentMode, .scaleAspectFit)
-        XCTAssertEqual(options.audioMode, .muted)
+        XCTAssertEqual(options.audioMode, .embedded)
         XCTAssertTrue(options.clearsAfterFinish)
         XCTAssertEqual(options.backgroundPolicy, .suspend)
         XCTAssertEqual(options.dynamicImagePlaybackMode, .animated)

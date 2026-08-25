@@ -8,6 +8,7 @@ enum GiftCatalog {
     enum ImagePolicy {
         case mixed
         case animatedOnly
+        case stillOnly
     }
 
     static let replacementText = "Swift VAP Test · 超长昵称用于验证文字跑马灯"
@@ -59,6 +60,7 @@ enum GiftCatalog {
 
     private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp"]
     private static let animatedExtensions: Set<String> = ["gif", "webp"]
+    private static let stillExtensions: Set<String> = ["png", "jpg", "jpeg"]
     private static let webPCoderRegistration: Void = {
         SDImageCodersManager.shared.addCoder(SDImageWebPCoder.shared)
     }()
@@ -70,25 +72,52 @@ enum GiftCatalog {
     static func content(
         for source: SourceMetadata,
         imagePolicy: ImagePolicy = .mixed,
-        animatedIndex: Int = 0,
+        imageIndex: Int = 0,
         replacementIndex: Int = 0
     ) -> DynamicContent {
         if source.kind == .text {
             return .textReplacement(replacementText(at: replacementIndex))
         }
-        if let gift = randomImage(policy: imagePolicy, tag: source.tag, animatedIndex: animatedIndex) {
+        if let gift = randomImage(policy: imagePolicy, tag: source.tag, imageIndex: imageIndex) {
             return .image(gift)
         }
         return .image(placeholder(size: source.slotSize, tag: source.tag))
     }
 
     static func animatedGiftCount(bundle: Bundle = .main) -> Int {
-        imageURLs(bundle: bundle, policy: .animatedOnly).count
+        giftCount(policy: .animatedOnly, bundle: bundle)
+    }
+
+    static func stillGiftCount(bundle: Bundle = .main) -> Int {
+        giftCount(policy: .stillOnly, bundle: bundle)
+    }
+
+    static func giftCount(policy: ImagePolicy, bundle: Bundle = .main) -> Int {
+        imageURLs(bundle: bundle, policy: policy).count
+    }
+
+    static func randomGiftIndex(policy: ImagePolicy, bundle: Bundle = .main) -> Int {
+        let count = giftCount(policy: policy, bundle: bundle)
+        guard count > 0 else { return 0 }
+        return Int.random(in: 0..<count)
     }
 
     static func animatedGiftDisplayName(at index: Int, bundle: Bundle = .main) -> String {
-        let urls = imageURLs(bundle: bundle, policy: .animatedOnly)
-        guard !urls.isEmpty else { return "无动图" }
+        giftDisplayName(at: index, policy: .animatedOnly, empty: "无动图", bundle: bundle)
+    }
+
+    static func stillGiftDisplayName(at index: Int, bundle: Bundle = .main) -> String {
+        giftDisplayName(at: index, policy: .stillOnly, empty: "无静图", bundle: bundle)
+    }
+
+    static func giftDisplayName(
+        at index: Int,
+        policy: ImagePolicy,
+        empty: String,
+        bundle: Bundle = .main
+    ) -> String {
+        let urls = imageURLs(bundle: bundle, policy: policy)
+        guard !urls.isEmpty else { return empty }
         return urls[((index % urls.count) + urls.count) % urls.count].lastPathComponent
     }
 
@@ -96,12 +125,12 @@ enum GiftCatalog {
         bundle: Bundle = .main,
         policy: ImagePolicy = .mixed,
         tag: String = "",
-        animatedIndex: Int = 0
+        imageIndex: Int = 0
     ) -> UIImage? {
         let urls = imageURLs(bundle: bundle, policy: policy)
         guard !urls.isEmpty else { return nil }
-        if policy == .animatedOnly {
-            let index = ((animatedIndex % urls.count) + urls.count) % urls.count
+        if policy != .mixed {
+            let index = ((imageIndex % urls.count) + urls.count) % urls.count
             return image(at: urls[index])
         }
         for url in urls.shuffled() {
@@ -113,7 +142,12 @@ enum GiftCatalog {
     }
 
     static func imageURLs(bundle: Bundle = .main, policy: ImagePolicy = .mixed) -> [URL] {
-        let allowed = policy == .animatedOnly ? animatedExtensions : imageExtensions
+        let allowed: Set<String>
+        switch policy {
+        case .mixed: allowed = imageExtensions
+        case .animatedOnly: allowed = animatedExtensions
+        case .stillOnly: allowed = stillExtensions
+        }
         var candidates: [URL] = []
         if let giftsURL = bundle.url(forResource: "Gifts", withExtension: nil),
            let enumerator = FileManager.default.enumerator(

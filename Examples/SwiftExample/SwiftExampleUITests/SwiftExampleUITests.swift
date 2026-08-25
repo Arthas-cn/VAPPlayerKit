@@ -17,8 +17,7 @@ final class SwiftExampleUITests: XCTestCase {
         let identifiers = manifest.split(separator: ",").map(String.init)
         XCTAssertEqual(identifiers, (1...21).map { String($0) })
         let scannedCount = identifiers.count
-        XCTAssertEqual(list.cells.count, scannedCount + 1)
-        XCTAssertTrue(list.cells["catalog.item.animated"].waitForExistence(timeout: 5))
+        XCTAssertEqual(list.cells.count, scannedCount)
 
         let first = list.cells["catalog.item.0"]
         XCTAssertTrue(first.waitForExistence(timeout: 5))
@@ -105,18 +104,10 @@ final class SwiftExampleUITests: XCTestCase {
     }
 
     func testAnimatedSlotScenePlaysOneMP4() throws {
-        let list = app.tables["catalog.list"]
-        XCTAssertTrue(list.waitForExistence(timeout: 10))
-        let scene = list.cells["catalog.item.animated"]
-        XCTAssertTrue(scene.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.otherElements["catalog.preview.animated"].waitForExistence(timeout: 5))
-        scene.tap()
-        XCTAssertTrue(app.otherElements["detail.player"].waitForExistence(timeout: 5))
-        XCTAssertTrue(
-            waitForState(["PLAYING"], timeout: 12),
-            "Animated slot lab did not auto-play 1.mp4. \(detailDiagnostics())"
-        )
+        try openDefaultPlayback()
         XCTAssertTrue(app.segmentedControls["detail.dynamicImagePlayback"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["detail.animated.previous"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.segmentedControls["detail.textOverflow"].waitForExistence(timeout: 3))
     }
 
     func testAutomatedSmokeMatrixOnDevice() throws {
