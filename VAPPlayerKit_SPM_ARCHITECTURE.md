@@ -18,6 +18,53 @@
 | 播放输入 | 本地 file URL；可扩展为受控的数据源协议 |
 | 推荐解码路径 | VideoToolbox + Metal |
 | 备用验证路径 | AVPlayerItemVideoOutput 或 AVAssetReaderTrackOutput |
+| 本地参考源码 | `vap-master/`（gitignore，仅本地对照，不入库、不复制进 package） |
+
+## 0.1 本地参考源码：`vap-master`
+
+仓库根目录的 `vap-master/` 是 **Tencent VAP / QGVAPlayer** 的完整参考实现，用于对照 VAP 容器格式、Alpha 布局、vapc/vapx 元数据、VideoToolbox 硬解和 Metal 合成行为。它**不是**本组件的实现来源，也不是依赖。
+
+使用规则：
+
+- 只读对照。实现时查阅格式与边界行为，不把旧代码翻译进 `Sources/`。
+- 已写入 `.gitignore`，不提交、不随 GitHub 发布。
+- 不复用 `UIView+VAP` category、`QG`/`HWD` 前缀、`repeatCount` 额外重复次数语义、全局 FPS dispatcher，以及 KVC 私有字段。
+- 公开 API、线程模型、错误域和资源定位全部以本文档和 `Sources/VAPPlayerKit` 为准。
+
+目录对照：
+
+| 参考路径 | 用途 |
+| --- | --- |
+| `vap-master/Introduction.md` | VAP 格式、压缩率和能力说明 |
+| `vap-master/iOS/QGVAPlayer/QGVAPlayer/Classes/` | 旧 iOS 播放器对象图 |
+| `vap-master/iOS/QGVAPlayer/QGVAPlayer/Classes/UIView+VAP.h` | 旧公开 API（category + delegate） |
+| `vap-master/iOS/QGVAPlayer/QGVAPlayer/Classes/MP4Parser/` | MP4 box / sample table 解析 |
+| `vap-master/iOS/QGVAPlayer/QGVAPlayer/Classes/Controllers/Decoders/` | VideoToolbox 硬解 |
+| `vap-master/iOS/QGVAPlayer/QGVAPlayer/Classes/Views/Metal/` | Metal / vapx 合成 |
+| `vap-master/iOS/QGVAPlayer/QGVAPlayer/Shaders/` | 旧 Metal shader |
+| `vap-master/iOS/QGVAPlayerDemo/` | Objective-C 调用方式对照 |
+| `vap-master/iOS/QGVAPlayerDemoSwift/` | 旧 Swift demo 对照 |
+| `vap-master/tool/` | vapc/vapx 工具与 JSON 描述 |
+| `vap-master/Android/` | 跨端行为对照，不迁入 iOS package |
+
+旧类型到新类型的职责映射（命名不兼容，只对照职责）：
+
+| vap-master | VAPPlayerKit |
+| --- | --- |
+| `UIView+VAP` / `QGVAPWrapView` | `PlayerView` / `VPKPlayerView` |
+| `HWDMP4PlayDelegate` | `PlayerDelegate` / `VPKPlayerDelegate` |
+| `playHWDMP4:repeatCount:` | `play(url:options:)` + `PlaybackOptions.loopCount` |
+| `HWDMP4EBOperationType` | `BackgroundPolicy` |
+| `contentForVapTag:` / `loadVapImageWithURL:` | `DynamicContentProvider` |
+| `QGVAPConfigModel` / `QGVAPConfigManager` | `AssetMetadata` / `AssetInspector` / `VapcReader` |
+| `QGMP4Parser` / `QGMP4Box` | `AssetInspector`（MP4 解析阶段） |
+| `QGMP4FrameHWDecoder` | `VideoToolboxFrameSource` |
+| `QGAnimatedImageBufferManager` | `FrameRingBuffer` |
+| `QGAnimatedImageDecodeThreadPool` / 全局 FPS 桶 | `FramePacer`（仅当前 session，禁止全局 dispatcher） |
+| `QGHWDMetalRenderer` / `QGVAPMetalRenderer` | `MetalRenderer` |
+| `QGHWDShaders.metal` | `Sources/VAPPlayerKit/Resources/Shaders/VPKShaders.metal` |
+| `QGMP4AnimatedImageFrame` | `DecodedFrame` |
+| `setMute:` | `AudioMode` |
 
 ## 1. 这次重写的架构边界
 
@@ -336,13 +383,13 @@ MetalRenderer 接收：
 
 ### 6.2 GPU 资源生命周期
 
-- MTLDevice、MTLCommandQueue、CVMetalTextureCache 和 pipeline cache 可在 package 内共享。
+- `MetalContext` 在 package 内线程安全共享 MTLDevice、MTLLibrary、两条 render pipeline、CVMetalTextureCache 和默认 MTLCommandQueue；Y/UV texture 创建、cache flush 与 in-flight 计数共用一把锁。renderer 只保留当前 session 的动态纹理、snapshot、drawable 与 in-flight references。独立 command queue 仅作为诊断对照策略。
 - MTLTexture、pixel buffer、dynamic snapshot 和 per-frame buffer 属于当前 render submission。
 - command buffer 完成前，相关 CPU/GPU 资源必须保持有效。
 - attachment 的 vertex buffer 和参数 buffer 使用预分配 ring allocator 或 sub-allocation。
 - 禁止每帧 malloc、创建新的 MTLBuffer 或编译 shader pipeline。
 - nextDrawable 为 nil、drawableSize 为零、Metal device 不可用时进入可恢复状态。
-- renderer dispose 必须等待或关联 command buffer completion。
+- renderer dispose 必须等待或关联 command buffer completion；只能通过 `MetalContext` 在无 in-flight submission 时做节流 flush，不能直接 flush 或释放仍被其他 session 使用的共享 texture cache。
 - render queue 不能直接读取 UIView 的 bounds、window、traitCollection 或其他 UIKit 可变状态。
 
 ### 6.3 Shader 与 SPM 资源
@@ -367,11 +414,20 @@ Shader 放在 VAPPlayerKit target 的 Resources 中，由 Swift 使用 Bundle.mo
 ~~~swift
 public enum DynamicContent {
     case text(String, attributes: TextAttributes)
+    case textReplacement(String)
     case image(UIImage)
     case imageURL(URL)
     case hidden
 }
 ~~~
+
+`textReplacement` 服务于宿主只提供 tag/value 的常见场景：使用 vapc source 的颜色、粗体标记和 slot 约束，自动选择可放入槽位的系统字号。vapc 不包含字体文件或精确 point size，因此不能承诺恢复原字体族或精确字号；有严格排版要求时可使用 `text(_:attributes:)`，或由 provider 按 tag 返回字体。
+
+宿主可在 `DynamicContentProvider.font(forTag:)` 中按 tag 提供字体。提供字体时组件保持该字体；未提供时自动字号最多缩小三次，仍无法放入槽位则使用 UIKit 的 `byTruncatingTail` 模式截断。
+
+该 case 扩展了 public enum，对 exhaustive switch 是源码破坏性变更；从已发布版本升级时必须按 SemVer major 交付并提供迁移说明，调用方需要处理 `.textReplacement` 或使用 `@unknown default`。
+
+没有 provider，或 provider 对某个 tag 返回 `nil` / `.hidden`，都固化为透明空槽位；动态内容缺省不得阻止视频准备或播放。provider 明确返回 error 或超过 timeout 仍按错误模型处理。
 
 公开 resolver 只表达“请求什么”和“完成什么”，不关心网络实现：
 
@@ -382,6 +438,8 @@ public protocol DynamicContentProvider: AnyObject {
         source: SourceMetadata,
         completion: @escaping (DynamicContent?, Error?) -> Void
     )
+
+    func font(forTag tag: String) -> UIFont?
 }
 ~~~
 
@@ -464,6 +522,7 @@ public final class AssetMetadata: NSObject {
     public let duration: TimeInterval
     public let containsAudio: Bool
     public let codec: String
+    public var isReusableForPlayback: Bool { get }
 }
 
 @MainActor
@@ -484,8 +543,20 @@ public final class PlayerView: UIView {
         options: PlaybackOptions
     ) async throws -> AssetMetadata
 
+    public func prepare(
+        url: URL,
+        metadata: AssetMetadata,
+        options: PlaybackOptions
+    ) async throws -> AssetMetadata
+
     public func play(
         url: URL,
+        options: PlaybackOptions
+    )
+
+    public func play(
+        url: URL,
+        metadata: AssetMetadata,
         options: PlaybackOptions
     )
 
@@ -501,6 +572,7 @@ API 语义：
 - loopCount 是总播放次数；1 表示播放一次，2 表示播放两次，0 表示无限循环。
 - prepare 不自动播放。
 - play 可以直接触发 prepare；如果资源已经准备好则复用 metadata。
+- metadata 优化入口只接受本组件为同一标准化本地 URL 解析出的、仍与稳定文件 identity、文件大小和修改时间匹配的对象；手工构造、不同 URL 或已变更文件会失败。它在解码轨准备前后复核文件签名，并校验轨道尺寸和 codec，避免以摘要数据绕过媒体有效性检查。源文件在 prepare/play/stop 生命周期内必须保持不可变；需要抵御不受信任的同 inode 并发改写时，应由宿主先完成原子缓存发布，或未来改为同一文件描述符驱动 inspection 与 decode。
 - stop 一定取消当前 session。
 - clear 释放当前画面和可回收资源。
 - 所有 UIKit 和控制方法要求主线程。
@@ -603,13 +675,26 @@ typedef NS_ENUM(NSInteger, VPKPlaybackErrorCode) {
 @property(nonatomic, assign) BOOL clearsAfterFinish;
 @end
 
+@interface VPKAssetMetadata : NSObject
+@property(nonatomic, readonly, getter=isReusableForPlayback) BOOL reusableForPlayback;
+@end
+
 @interface VPKPlayerView : UIView
 @property(nonatomic, weak, nullable) id<VPKPlayerDelegate> delegate;
 
 - (void)prepareWithURL:(NSURL *)URL
+               options:(VPKPlaybackOptions *)options
             completion:(void (^)(VPKAssetMetadata * _Nullable metadata,
                                  NSError * _Nullable error))completion;
+- (void)prepareWithURL:(NSURL *)URL
+              metadata:(VPKAssetMetadata *)metadata
+               options:(VPKPlaybackOptions *)options
+            completion:(void (^)(VPKAssetMetadata * _Nullable result,
+                                 NSError * _Nullable error))completion;
 - (void)playWithURL:(NSURL *)URL
+            options:(VPKPlaybackOptions *)options;
+- (void)playWithURL:(NSURL *)URL
+           metadata:(VPKAssetMetadata *)metadata
             options:(VPKPlaybackOptions *)options;
 - (void)pause;
 - (void)resume;
@@ -647,6 +732,7 @@ VAPPlayerKit/
 │   │   │   ├── FrameRingBuffer.swift
 │   │   │   ├── MediaClock.swift
 │   │   │   ├── FramePacer.swift
+│   │   │   ├── MetalContext.swift
 │   │   │   ├── MetalRenderer.swift
 │   │   │   ├── DynamicResolver.swift
 │   │   │   └── AudioCoordinator.swift
@@ -665,6 +751,7 @@ VAPPlayerKit/
 │   ├── VAPPlayerKitRendererTests/
 │   ├── VAPPlayerKitObjCTests/
 │   └── Fixtures/
+│       └── VAP/                 提交到仓库的 VAP 样例，测试与 Demo 共用
 ├── Examples/
 │   ├── SwiftExample/
 │   └── ObjectiveCExample/
@@ -891,8 +978,8 @@ GitHub 仓库必须同时包含：
 
 - README 只描述通用 VAPPlayerKit，不出现任何宿主项目名称、业务对象或本地绝对路径。
 - 提供 LICENSE、版本策略、CHANGELOG 和迁移说明。
-- 测试视频必须拥有明确许可证，或使用自动生成的最小 fixture。
-- 不提交真实用户图片、业务资源、内网地址、签名文件和缓存。
+- 测试与 Demo 使用仓库内 `Tests/Fixtures/VAP/` 的样例（清单见该目录 README）。非法 XML 伪装 mp4 作为负向 fixture。不要把这批资源加入 gitignore。
+- 不提交真实用户图片、内网地址、签名文件和缓存。
 - CI 至少执行 Swift 编译、Swift 单元测试、Objective-C demo 编译和 Metal resource 检查。
 - 使用 SemVer；破坏公开 API 时升级 major。
 - 每次 release 记录支持的 iOS、codec、VAP metadata version 和已知限制。
@@ -951,6 +1038,7 @@ GitHub 仓库必须同时包含：
 
 ## 17. 参考资料
 
+- 本地参考实现：仓库根目录 `vap-master/`（详见 [0.1 本地参考源码：vap-master](#01-本地参考源码vap-master)）。只对照格式与行为，不复制旧 API。
 - [Apple：Importing Swift into Objective-C](https://developer.apple.com/documentation/swift/importing-swift-into-objective-c)
 - [Swift Package Manager：Package targets](https://docs.swift.org/swiftpm/documentation/packagemanagerdocs/target/)
 - [Swift Package Manager：Creating C language targets](https://docs.swift.org/swiftpm/documentation/packagemanagerdocs/creatingclanguagetargets/)
