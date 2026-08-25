@@ -1,6 +1,12 @@
 #import "GiftCatalog.h"
 
+#import <ImageIO/ImageIO.h>
+
 @implementation GiftCatalog
+
++ (NSSet<NSString *> *)imageExtensions {
+    return [NSSet setWithObjects:@"png", @"jpg", @"jpeg", @"gif", @"webp", nil];
+}
 
 + (NSString *)replacementText {
     return @"ObjC VAP Test";
@@ -28,26 +34,50 @@
 }
 
 + (UIImage *)randomImageInBundle:(NSBundle *)bundle {
-    NSArray<NSURL *> *urls = [self imageURLsInBundle:bundle];
-    if (urls.count == 0) {
-        return nil;
+    NSMutableArray<NSURL *> *urls = [[self imageURLsInBundle:bundle] mutableCopy];
+    while (urls.count > 0) {
+        NSUInteger index = arc4random_uniform((uint32_t)urls.count);
+        NSURL *url = urls[index];
+        [urls removeObjectAtIndex:index];
+        UIImage *image = [self imageAtURL:url];
+        if (image != nil) {
+            return image;
+        }
     }
-    NSURL *url = urls[arc4random_uniform((uint32_t)urls.count)];
-    return [UIImage imageWithContentsOfFile:url.path];
+    return nil;
 }
 
 + (NSArray<NSURL *> *)imageURLsInBundle:(NSBundle *)bundle {
-    NSMutableArray<NSURL *> *candidates = [[bundle URLsForResourcesWithExtension:@"png" subdirectory:@"Gifts"] mutableCopy];
-    if (candidates == nil) {
-        candidates = [NSMutableArray array];
+    NSMutableArray<NSURL *> *candidates = [NSMutableArray array];
+    NSURL *giftsURL = [bundle URLForResource:@"Gifts" withExtension:nil];
+    if (giftsURL != nil) {
+        NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtURL:giftsURL
+                                                               includingPropertiesForKeys:@[NSURLIsRegularFileKey]
+                                                                                  options:NSDirectoryEnumerationSkipsHiddenFiles
+                                                                             errorHandler:nil];
+        for (NSURL *url in enumerator) {
+            if ([self.imageExtensions containsObject:url.pathExtension.lowercaseString]) {
+                [candidates addObject:url];
+            }
+        }
     }
+
+    if (candidates.count == 0) {
+        for (NSString *fileExtension in self.imageExtensions) {
+            NSArray<NSURL *> *matches = [bundle URLsForResourcesWithExtension:fileExtension subdirectory:@"Gifts"];
+            if (matches.count > 0) {
+                [candidates addObjectsFromArray:matches];
+            }
+        }
+    }
+
     if (candidates.count == 0 && bundle.resourceURL != nil) {
         NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtURL:bundle.resourceURL
                                                                includingPropertiesForKeys:@[NSURLIsRegularFileKey]
                                                                                   options:NSDirectoryEnumerationSkipsHiddenFiles
                                                                              errorHandler:nil];
         for (NSURL *url in enumerator) {
-            if ([url.pathExtension.lowercaseString isEqualToString:@"png"]) {
+            if ([self.imageExtensions containsObject:url.pathExtension.lowercaseString]) {
                 [candidates addObject:url];
             }
         }
@@ -64,6 +94,29 @@
         [unique addObject:url];
     }
     return [unique copy];
+}
+
++ (UIImage *)imageAtURL:(NSURL *)url {
+    // Demo 不引入 SDWebImage，GIF / WebP 只取首帧静图，与 Swift Demo 对照。
+    UIImage *image = [UIImage imageWithContentsOfFile:url.path];
+    if (image.size.width > 0 && image.size.height > 0) {
+        return image;
+    }
+    CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)url, NULL);
+    if (source == NULL) {
+        return nil;
+    }
+    CGImageRef cgImage = NULL;
+    if (CGImageSourceGetCount(source) > 0) {
+        cgImage = CGImageSourceCreateImageAtIndex(source, 0, NULL);
+    }
+    CFRelease(source);
+    if (cgImage == NULL) {
+        return nil;
+    }
+    UIImage *decoded = [UIImage imageWithCGImage:cgImage];
+    CGImageRelease(cgImage);
+    return decoded;
 }
 
 + (UIImage *)placeholderWithSize:(CGSize)size tag:(NSString *)tag {

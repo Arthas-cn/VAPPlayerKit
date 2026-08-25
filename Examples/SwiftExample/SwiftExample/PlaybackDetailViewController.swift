@@ -2,7 +2,14 @@ import UIKit
 import VAPPlayerKit
 
 final class PlaybackDetailViewController: UIViewController {
+    enum Scenario {
+        case catalog
+        case animatedSlots
+    }
+
     private let fixture: VAPFixture
+    private let scenario: Scenario
+    private var animatedGiftIndex: Int
     private let playerView = PlayerView()
     private let diagnostics = PlaybackDiagnostics()
     private let scrollView = UIScrollView()
@@ -16,6 +23,10 @@ final class PlaybackDetailViewController: UIViewController {
     private let loopControl = UISegmentedControl(items: ["1×", "2×", "∞"])
     private let audioControl = UISegmentedControl(items: ["静音", "内嵌", "外部", "禁用"])
     private let backgroundControl = UISegmentedControl(items: ["挂起", "停止"])
+    private let dynamicImageControl = UISegmentedControl(items: ["静图", "动图"])
+    private let previousGiftButton = UIButton(type: .system)
+    private let nextGiftButton = UIButton(type: .system)
+    private let giftNameLabel = UILabel()
     private let clearsSwitch = UISwitch()
     private var operationTask: Task<Void, Never>?
     private var currentMetadata: AssetMetadata?
@@ -25,8 +36,10 @@ final class PlaybackDetailViewController: UIViewController {
     private var currentFinishReason: FinishReason?
     private var hasAutoPlayed = false
 
-    init(fixture: VAPFixture) {
+    init(fixture: VAPFixture, scenario: Scenario = .catalog, animatedGiftIndex: Int = 0) {
         self.fixture = fixture
+        self.scenario = scenario
+        self.animatedGiftIndex = animatedGiftIndex
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -44,6 +57,9 @@ final class PlaybackDetailViewController: UIViewController {
         bindDiagnostics()
         diagnostics.append("DEVICE", "\(UIDevice.current.model), iOS \(UIDevice.current.systemVersion)")
         diagnostics.append("ASSET", "\(fixture.shortIdentifier), \(fixture.formattedSize)")
+        if scenario == .animatedSlots {
+            diagnostics.append("SCENE", "1.mp4 animated slots · GIF / WebP")
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -65,7 +81,7 @@ final class PlaybackDetailViewController: UIViewController {
     }
 
     private func configureNavigation() {
-        title = "Playback Lab"
+        title = scenario == .animatedSlots ? "动图槽位" : "Playback Lab"
         navigationItem.largeTitleDisplayMode = .never
         view.backgroundColor = UIColor(red: 0.03, green: 0.04, blue: 0.065, alpha: 1)
         navigationItem.rightBarButtonItem = UIBarButtonItem(
@@ -100,6 +116,9 @@ final class PlaybackDetailViewController: UIViewController {
         contentStack.addArrangedSubview(makeAssetHeader())
         contentStack.addArrangedSubview(previewCard)
         contentStack.addArrangedSubview(makeOptionsCard())
+        if scenario == .animatedSlots {
+            contentStack.addArrangedSubview(makeGiftSwitcherCard())
+        }
         contentStack.addArrangedSubview(makeControlsCard())
         contentStack.addArrangedSubview(makeDiagnosticsCard())
     }
@@ -142,16 +161,21 @@ final class PlaybackDetailViewController: UIViewController {
 
     private func makeAssetHeader() -> UIView {
         let eyebrow = UILabel()
-        eyebrow.text = fixture.looksLikeMedia ? "LOCAL VAP FIXTURE" : "NEGATIVE FIXTURE"
+        eyebrow.text = {
+            if scenario == .animatedSlots { return "ANIMATED SLOT LAB · 1.MP4" }
+            return fixture.looksLikeMedia ? "LOCAL VAP FIXTURE" : "NEGATIVE FIXTURE"
+        }()
         eyebrow.font = .systemFont(ofSize: 11, weight: .bold)
         eyebrow.textColor = UIColor(red: 0.42, green: 0.82, blue: 1, alpha: 1)
         let name = UILabel()
-        name.text = fixture.shortIdentifier
+        name.text = scenario == .animatedSlots ? "GIF / WebP 槽位替换" : fixture.shortIdentifier
         name.font = .monospacedSystemFont(ofSize: 19, weight: .semibold)
         name.textColor = .white
         name.adjustsFontSizeToFitWidth = true
         let detail = UILabel()
-        detail.text = "\(fixture.formattedSize) · 本地文件 · 已自动播放，可用下方控制测试"
+        detail.text = scenario == .animatedSlots
+            ? "\(fixture.formattedSize) · 仅使用 GIF / WebP · 默认播动图"
+            : "\(fixture.formattedSize) · 本地文件 · 已自动播放，可用下方控制测试"
         detail.font = .systemFont(ofSize: 13)
         detail.textColor = UIColor(white: 0.62, alpha: 1)
         let stack = UIStackView(arrangedSubviews: [eyebrow, name, detail])
@@ -165,22 +189,64 @@ final class PlaybackDetailViewController: UIViewController {
         loopControl.selectedSegmentIndex = 0
         audioControl.selectedSegmentIndex = 0
         backgroundControl.selectedSegmentIndex = 0
+        dynamicImageControl.selectedSegmentIndex = 1
         clearsSwitch.isOn = true
-        [contentModeControl, loopControl, audioControl, backgroundControl].forEach {
+        [contentModeControl, loopControl, audioControl, backgroundControl, dynamicImageControl].forEach {
             $0.selectedSegmentTintColor = UIColor(red: 0.15, green: 0.43, blue: 0.62, alpha: 1)
         }
         contentModeControl.accessibilityIdentifier = "detail.contentMode"
         loopControl.accessibilityIdentifier = "detail.loopCount"
         audioControl.accessibilityIdentifier = "detail.audioMode"
         backgroundControl.accessibilityIdentifier = "detail.backgroundPolicy"
+        dynamicImageControl.accessibilityIdentifier = "detail.dynamicImagePlayback"
         clearsSwitch.accessibilityIdentifier = "detail.clearsAfterFinish"
         return makeCard(title: "播放参数", rows: [
             makeOptionRow(title: "画布模式", control: contentModeControl),
             makeOptionRow(title: "循环次数", control: loopControl),
             makeOptionRow(title: "音频策略", control: audioControl),
             makeOptionRow(title: "离屏策略", control: backgroundControl),
+            makeOptionRow(title: "槽位图片", control: dynamicImageControl),
             makeOptionRow(title: "结束清屏", control: clearsSwitch)
         ])
+    }
+
+    private func makeGiftSwitcherCard() -> UIView {
+        previousGiftButton.configuration = giftSwitcherConfiguration("上一张", icon: "chevron.left")
+        nextGiftButton.configuration = giftSwitcherConfiguration("下一张", icon: "chevron.right")
+        previousGiftButton.accessibilityIdentifier = "detail.animated.previous"
+        nextGiftButton.accessibilityIdentifier = "detail.animated.next"
+        previousGiftButton.addTarget(self, action: #selector(previousGiftTapped), for: .touchUpInside)
+        nextGiftButton.addTarget(self, action: #selector(nextGiftTapped), for: .touchUpInside)
+        giftNameLabel.font = .monospacedSystemFont(ofSize: 13, weight: .semibold)
+        giftNameLabel.textColor = UIColor(red: 0.54, green: 0.9, blue: 0.75, alpha: 1)
+        giftNameLabel.textAlignment = .center
+        giftNameLabel.lineBreakMode = .byTruncatingMiddle
+        giftNameLabel.accessibilityIdentifier = "detail.animated.name"
+        refreshGiftName()
+        let row = UIStackView(arrangedSubviews: [previousGiftButton, giftNameLabel, nextGiftButton])
+        row.axis = .horizontal
+        row.alignment = .center
+        row.spacing = 10
+        giftNameLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        previousGiftButton.setContentHuggingPriority(.required, for: .horizontal)
+        nextGiftButton.setContentHuggingPriority(.required, for: .horizontal)
+        return makeCard(title: "切换动图", rows: [row])
+    }
+
+    private func giftSwitcherConfiguration(_ title: String, icon: String) -> UIButton.Configuration {
+        var configuration = UIButton.Configuration.tinted()
+        configuration.title = title
+        configuration.image = UIImage(systemName: icon)
+        configuration.imagePadding = 4
+        configuration.cornerStyle = .medium
+        configuration.baseBackgroundColor = UIColor(red: 0.12, green: 0.48, blue: 0.72, alpha: 1)
+        configuration.baseForegroundColor = .white
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10)
+        return configuration
+    }
+
+    private func refreshGiftName() {
+        giftNameLabel.text = GiftCatalog.animatedGiftDisplayName(at: animatedGiftIndex)
     }
 
     private func makeControlsCard() -> UIView {
@@ -242,6 +308,7 @@ final class PlaybackDetailViewController: UIViewController {
         options.loopCount = [1, 2, 0][loopControl.selectedSegmentIndex]
         options.audioMode = audioMode ?? [.muted, .embedded, .external, .disabled][audioControl.selectedSegmentIndex]
         options.backgroundPolicy = backgroundControl.selectedSegmentIndex == 0 ? .suspend : .stop
+        options.dynamicImagePlaybackMode = dynamicImageControl.selectedSegmentIndex == 0 ? .still : .animated
         options.clearsAfterFinish = clearsSwitch.isOn
         return options
     }
@@ -255,6 +322,24 @@ final class PlaybackDetailViewController: UIViewController {
         cancelOperation()
         stateLabel.text = "PREPARING"
         diagnostics.append("ACTION", "play")
+        playerView.play(url: fixture.url, options: currentOptions())
+    }
+
+    @objc private func previousGiftTapped() {
+        cycleAnimatedGift(by: -1)
+    }
+
+    @objc private func nextGiftTapped() {
+        cycleAnimatedGift(by: 1)
+    }
+
+    private func cycleAnimatedGift(by delta: Int) {
+        let count = max(GiftCatalog.animatedGiftCount(), 1)
+        animatedGiftIndex = (animatedGiftIndex + delta % count + count) % count
+        refreshGiftName()
+        diagnostics.append("ACTION", "switch gift \(GiftCatalog.animatedGiftDisplayName(at: animatedGiftIndex))")
+        cancelOperation()
+        stateLabel.text = "PREPARING"
         playerView.play(url: fixture.url, options: currentOptions())
     }
 
@@ -525,7 +610,11 @@ extension PlaybackDetailViewController: DynamicContentProvider {
         completion: @escaping (DynamicContent?, Error?) -> Void
     ) {
         diagnostics.append("DYNAMIC", "resolve \(tag) (\(source.kind == .text ? "txt" : "img")), \(Int(source.slotSize.width))×\(Int(source.slotSize.height))")
-        completion(GiftCatalog.content(for: source), nil)
+        completion(GiftCatalog.content(
+            for: source,
+            imagePolicy: scenario == .animatedSlots ? .animatedOnly : .mixed,
+            animatedIndex: animatedGiftIndex
+        ), nil)
     }
 }
 

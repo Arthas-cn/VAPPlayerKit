@@ -76,6 +76,18 @@ final class ViewController: UIViewController {
         definesPresentationContext = true
     }
 
+    private var isSearching: Bool {
+        !(searchController.searchBar.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty
+    }
+
+    private var animatedSceneFixture: VAPFixture? {
+        fixtures.first { $0.fileName.compare("1.mp4", options: .caseInsensitive) == .orderedSame }
+    }
+
+    private var showsAnimatedScene: Bool {
+        !isSearching && animatedSceneFixture != nil
+    }
+
     @objc private func reloadFixtures() {
         fixtures = FixtureCatalog.scan()
         tableView.accessibilityValue = fixtures.map(\.identifier).joined(separator: ",")
@@ -113,19 +125,37 @@ final class ViewController: UIViewController {
 }
 
 extension ViewController: UITableViewDataSource, UITableViewDelegate {
-    func numberOfSections(in tableView: UITableView) -> Int { 1 }
+    func numberOfSections(in tableView: UITableView) -> Int {
+        showsAnimatedScene ? 2 : 1
+    }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        filteredFixtures.count
+        if showsAnimatedScene, section == 0 { return 1 }
+        return filteredFixtures.count
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        "已扫描 \(fixtures.count) 个资源 · 当前显示 \(filteredFixtures.count) 个"
+        if showsAnimatedScene, section == 0 {
+            return "专项场景 · 1.mp4 动图槽位"
+        }
+        return "已扫描 \(fixtures.count) 个资源 · 当前显示 \(filteredFixtures.count) 个"
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: FixtureCell.reuseIdentifier, for: indexPath)
         guard let cell = cell as? FixtureCell else { return cell }
+        if showsAnimatedScene, indexPath.section == 0, let fixture = animatedSceneFixture {
+            cell.configure(
+                with: fixture,
+                index: 0,
+                title: "动图槽位测试",
+                subtitle: "1.mp4 · 仅 GIF / WebP",
+                accessibilityID: "catalog.item.animated",
+                previewID: "catalog.preview.animated",
+                imagePolicy: .animatedOnly
+            )
+            return cell
+        }
         let fixture = filteredFixtures[indexPath.row]
         cell.configure(with: fixture, index: fixtures.firstIndex(of: fixture) ?? indexPath.row)
         return cell
@@ -133,6 +163,13 @@ extension ViewController: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        if showsAnimatedScene, indexPath.section == 0, let fixture = animatedSceneFixture {
+            navigationController?.pushViewController(
+                PlaybackDetailViewController(fixture: fixture, scenario: .animatedSlots),
+                animated: true
+            )
+            return
+        }
         navigationController?.pushViewController(
             PlaybackDetailViewController(fixture: filteredFixtures[indexPath.row]),
             animated: true
@@ -166,6 +203,7 @@ private final class FixtureCell: UITableViewCell, PlayerDelegate, DynamicContent
     private let stateImage = UIImageView()
     private var fixture: VAPFixture?
     private var isPreviewActive = false
+    private var imagePolicy: GiftCatalog.ImagePolicy = .mixed
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -248,20 +286,30 @@ private final class FixtureCell: UITableViewCell, PlayerDelegate, DynamicContent
         super.prepareForReuse()
         fixture = nil
         isPreviewActive = false
+        imagePolicy = .mixed
         previewView.clear()
         previewView.accessibilityValue = "idle"
     }
 
-    func configure(with fixture: VAPFixture, index: Int) {
+    func configure(
+        with fixture: VAPFixture,
+        index: Int,
+        title: String? = nil,
+        subtitle: String? = nil,
+        accessibilityID: String? = nil,
+        previewID: String? = nil,
+        imagePolicy: GiftCatalog.ImagePolicy = .mixed
+    ) {
         stopPreview()
         self.fixture = fixture
+        self.imagePolicy = imagePolicy
         indexLabel.text = String(format: "%02d", index + 1)
-        titleLabel.text = fixture.looksLikeMedia ? "VAP 动画资源" : "损坏资源（负向样例）"
-        subtitleLabel.text = fixture.shortIdentifier
+        titleLabel.text = title ?? (fixture.looksLikeMedia ? "VAP 动画资源" : "损坏资源（负向样例）")
+        subtitleLabel.text = subtitle ?? fixture.shortIdentifier
         sizeLabel.text = "  \(fixture.formattedSize)  "
-        accessibilityIdentifier = "catalog.item.\(index)"
-        accessibilityLabel = "资源 \(index + 1)，\(fixture.formattedSize)，\(fixture.shortIdentifier)"
-        previewView.accessibilityIdentifier = "catalog.preview.\(index)"
+        accessibilityIdentifier = accessibilityID ?? "catalog.item.\(index)"
+        accessibilityLabel = "资源 \(index + 1)，\(fixture.formattedSize)，\(subtitleLabel.text ?? fixture.shortIdentifier)"
+        previewView.accessibilityIdentifier = previewID ?? "catalog.preview.\(index)"
         previewView.accessibilityValue = fixture.looksLikeMedia ? "idle" : "invalid"
     }
 
@@ -272,6 +320,9 @@ private final class FixtureCell: UITableViewCell, PlayerDelegate, DynamicContent
         options.loopCount = 0
         options.clearsAfterFinish = false
         options.contentMode = .scaleAspectFit
+        if imagePolicy == .animatedOnly {
+            options.dynamicImagePlaybackMode = .animated
+        }
         previewView.accessibilityValue = "preparing"
         previewView.play(url: fixture.url, options: options)
     }
@@ -301,7 +352,7 @@ private final class FixtureCell: UITableViewCell, PlayerDelegate, DynamicContent
         source: SourceMetadata,
         completion: @escaping (DynamicContent?, Error?) -> Void
     ) {
-        completion(GiftCatalog.content(for: source), nil)
+        completion(GiftCatalog.content(for: source, imagePolicy: imagePolicy), nil)
     }
 }
 

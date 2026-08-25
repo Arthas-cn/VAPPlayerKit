@@ -3,6 +3,7 @@ import UIKit
 
 enum ResolvedDynamicContent: @unchecked Sendable {
     case image(UIImage)
+    case animated(AnimatedDynamicSlot)
     case hidden
 }
 
@@ -20,7 +21,11 @@ final class DynamicResolver {
     private var generation: UInt64 = 0
     private var activeGates: [UUID: DynamicResolutionGate] = [:]
 
-    func resolve(sources: [VapcSource], timeout: TimeInterval = 8) async throws -> DynamicSnapshot {
+    func resolve(
+        sources: [VapcSource],
+        timeout: TimeInterval = 8,
+        imagePlayback: DynamicImagePlaybackMode = .animated
+    ) async throws -> DynamicSnapshot {
         generation &+= 1
         let currentGeneration = generation
         guard !sources.isEmpty else { return .empty }
@@ -45,7 +50,12 @@ final class DynamicResolver {
                     guard let self, self.generation == currentGeneration else {
                         throw PlaybackError.cancelled
                     }
-                    let content = try await self.resolveOne(source, timeout: timeout, generation: currentGeneration)
+                    let content = try await self.resolveOne(
+                        source,
+                        timeout: timeout,
+                        generation: currentGeneration,
+                        imagePlayback: imagePlayback
+                    )
                     return (source.id, content)
                 }
             }
@@ -66,7 +76,12 @@ final class DynamicResolver {
         }
     }
 
-    private func resolveOne(_ source: VapcSource, timeout: TimeInterval, generation: UInt64) async throws -> ResolvedDynamicContent {
+    private func resolveOne(
+        _ source: VapcSource,
+        timeout: TimeInterval,
+        generation: UInt64,
+        imagePlayback: DynamicImagePlaybackMode
+    ) async throws -> ResolvedDynamicContent {
         let metadata = SourceMetadata(
             tag: source.tag,
             slotSize: source.slotSize,
@@ -89,7 +104,11 @@ final class DynamicResolver {
                             if let error {
                                 gate.finish(.failure(error))
                             } else {
-                                let resolved = await self.materialize(content ?? .hidden, source: source)
+                                let resolved = await self.materialize(
+                                    content ?? .hidden,
+                                    source: source,
+                                    imagePlayback: imagePlayback
+                                )
                                 guard self.generation == generation else {
                                     gate.finish(.failure(PlaybackError.cancelled))
                                     return
@@ -108,14 +127,22 @@ final class DynamicResolver {
                             if let error {
                                 gate.finish(.failure(error))
                             } else if let replacementText {
-                                let resolved = await self.materialize(.textReplacement(replacementText), source: source)
+                                let resolved = await self.materialize(
+                                    .textReplacement(replacementText),
+                                    source: source,
+                                    imagePlayback: imagePlayback
+                                )
                                 guard self.generation == generation else {
                                     gate.finish(.failure(PlaybackError.cancelled))
                                     return
                                 }
                                 gate.finish(.success(resolved))
                             } else if let image {
-                                let resolved = await self.materialize(.image(image), source: source)
+                                let resolved = await self.materialize(
+                                    .image(image),
+                                    source: source,
+                                    imagePlayback: imagePlayback
+                                )
                                 guard self.generation == generation else {
                                     gate.finish(.failure(PlaybackError.cancelled))
                                     return
@@ -137,19 +164,41 @@ final class DynamicResolver {
         }
     }
 
-    private func materialize(_ content: DynamicContent, source: VapcSource) async -> ResolvedDynamicContent {
+    private func materialize(
+        _ content: DynamicContent,
+        source: VapcSource,
+        imagePlayback: DynamicImagePlaybackMode
+    ) async -> ResolvedDynamicContent {
         // All branches use UIKit drawing. Serializing them on this @MainActor avoids a
         // physical-device deadlock between concurrent image and TextKit renderers.
         switch content {
         case .hidden, .imageURL:
             return .hidden
         case .image(let image):
-            return .image(Self.resized(image, source: source))
+            return Self.resolveImage(image, source: source, imagePlayback: imagePlayback)
         case .text(let text, let attributes):
             return .image(Self.rasterizedText(text, attributes: attributes, source: source))
         case .textReplacement(let text):
             return .image(Self.rasterizedReplacementText(text, source: source, font: self.font(for: source)))
         }
+    }
+
+    static func resolveImage(
+        _ image: UIImage,
+        source: VapcSource,
+        imagePlayback: DynamicImagePlaybackMode
+    ) -> ResolvedDynamicContent {
+        let stillSource: UIImage
+        if SDWebImageRuntime.isAnimatedImage(image), let firstFrame = SDWebImageRuntime.frame(of: image, at: 0) {
+            stillSource = firstFrame
+        } else {
+            stillSource = image
+        }
+        let stillFrame = resized(stillSource, source: source)
+        if imagePlayback == .animated, SDWebImageRuntime.isAnimatedImage(image) {
+            return .animated(AnimatedDynamicSlot(provider: image, firstFrame: stillFrame, source: source))
+        }
+        return .image(stillFrame)
     }
 
     private func font(for source: VapcSource) -> UIFont? {
@@ -275,11 +324,14 @@ final class DynamicResolver {
         }
     }
 
-    private static func resized(_ image: UIImage, source: VapcSource) -> UIImage {
+    static func resized(_ image: UIImage, source: VapcSource) -> UIImage {
         return renderPremultipliedImage(size: source.slotSize) {
             let target: CGRect
-            if source.fitType == "centerFull", image.size.width > 0, image.size.height > 0 {
-                let scale = max(source.slotSize.width / image.size.width, source.slotSize.height / image.size.height)
+            if image.size.width > 0, image.size.height > 0 {
+                let scale = max(
+                    source.slotSize.width / image.size.width,
+                    source.slotSize.height / image.size.height
+                )
                 let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
                 target = CGRect(
                     x: (source.slotSize.width - size.width) / 2,

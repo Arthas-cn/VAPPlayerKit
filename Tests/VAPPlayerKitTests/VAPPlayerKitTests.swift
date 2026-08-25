@@ -10,15 +10,20 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertEqual(options.audioMode, .muted)
         XCTAssertTrue(options.clearsAfterFinish)
         XCTAssertEqual(options.backgroundPolicy, .suspend)
+        XCTAssertEqual(options.dynamicImagePlaybackMode, .animated)
     }
 
     func testPlaybackOptionsCopyIsIndependent() {
         let original = PlaybackOptions.defaultOptions
         original.loopCount = 0
+        original.dynamicImagePlaybackMode = .still
         let copy = original.copy() as! PlaybackOptions
         copy.loopCount = 2
+        copy.dynamicImagePlaybackMode = .animated
         XCTAssertEqual(original.loopCount, 0)
+        XCTAssertEqual(original.dynamicImagePlaybackMode, .still)
         XCTAssertEqual(copy.loopCount, 2)
+        XCTAssertEqual(copy.dynamicImagePlaybackMode, .animated)
     }
 
     func testNegativeLoopCountFallsBackToSinglePlayback() {
@@ -138,6 +143,38 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertEqual(alpha(in: pixels, width: 8, x: 0, y: 7), 0)
         XCTAssertEqual(alpha(in: pixels, width: 8, x: 7, y: 7), 0)
         XCTAssertEqual(alpha(in: pixels, width: 8, x: 4, y: 4), 255)
+    }
+
+    func testSDWebImageRuntimeIsOptionalWithoutHostLink() {
+        XCTAssertFalse(SDWebImageRuntime.isAvailable)
+        XCTAssertFalse(PlaybackOptions.canPlayAnimatedDynamicImages)
+        XCTAssertFalse(SDWebImageRuntime.isAnimatedImage(UIImage()))
+        XCTAssertNil(SDWebImageRuntime.makePlayer(provider: UIImage(), onFrame: { _, _ in }))
+    }
+
+    @MainActor
+    func testRegularUIImageStaysStaticEvenWhenAnimatedPlaybackIsRequested() throws {
+        let image = try XCTUnwrap(makeTransparentStampImage())
+        let source = VapcSource(
+            id: "avatar",
+            kind: .image,
+            tag: "avatar",
+            slotSize: CGSize(width: 8, height: 8),
+            loadType: "local",
+            fitType: "fitXY",
+            color: nil,
+            style: nil
+        )
+        let animatedMode = DynamicResolver.resolveImage(image, source: source, imagePlayback: .animated)
+        let stillMode = DynamicResolver.resolveImage(image, source: source, imagePlayback: .still)
+        guard case .image(let animatedResult) = animatedMode else {
+            return XCTFail("Regular UIImage must stay a static slot without SDWebImage")
+        }
+        guard case .image(let stillResult) = stillMode else {
+            return XCTFail("Still mode must rasterize a static slot")
+        }
+        XCTAssertEqual(animatedResult.size, source.slotSize)
+        XCTAssertEqual(stillResult.size, source.slotSize)
     }
 
     @MainActor

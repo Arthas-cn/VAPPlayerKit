@@ -34,6 +34,7 @@ final class PlaybackSession {
     private let pacer: FramePacer
     private var inspection: InspectionResult?
     private var dynamicSnapshot = DynamicSnapshot.empty
+    private let animatedPlayback = AnimatedDynamicPlayback()
     private var sourceEnded = false
     private var completedLoops = 0
     private var terminalDelivered = false
@@ -120,7 +121,10 @@ final class PlaybackSession {
             try ensureActive()
             let dynamicStartedAt = CACurrentMediaTime()
             do {
-                dynamicSnapshot = try await dynamicResolver.resolve(sources: inspection.vapc.sources)
+                dynamicSnapshot = try await dynamicResolver.resolve(
+                    sources: inspection.vapc.sources,
+                    imagePlayback: options.dynamicImagePlaybackMode
+                )
                 metricsSink?.record(.dynamicResolveDuration(CACurrentMediaTime() - dynamicStartedAt))
             } catch {
                 if (error as? PlaybackError)?.code == .dynamicContentTimeout {
@@ -130,6 +134,8 @@ final class PlaybackSession {
             }
             try ensureActive()
             try await renderer.prepareDynamic(dynamicSnapshot)
+            try ensureActive()
+            animatedPlayback.prepare(snapshot: dynamicSnapshot, renderer: renderer)
             try ensureActive()
             try await audioCoordinator.prepare(
                 url: url,
@@ -208,6 +214,7 @@ final class PlaybackSession {
         lastFrameEndTime = nil
         playStartedAt = CACurrentMediaTime()
         clock.reset()
+        animatedPlayback.start()
         startSource()
     }
 
@@ -222,6 +229,7 @@ final class PlaybackSession {
         frameSource.pause()
         if timelineStarted { clock.pause() }
         audioCoordinator.pause()
+        animatedPlayback.pause()
     }
 
     func resume() {
@@ -235,6 +243,7 @@ final class PlaybackSession {
         } else {
             startTimelineIfReady()
         }
+        animatedPlayback.start()
     }
 
     func suspend() {
@@ -244,6 +253,7 @@ final class PlaybackSession {
         frameSource.pause()
         if timelineStarted { clock.pause() }
         audioCoordinator.pause()
+        animatedPlayback.pause()
     }
 
     func stop(reason: FinishReason = .stopped) {
@@ -394,6 +404,7 @@ final class PlaybackSession {
         ringBuffer.cancelWaiting()
         frameSource.cancel()
         dynamicResolver.cancel()
+        animatedPlayback.stop()
         audioCoordinator.stop()
         ringBuffer.removeAll()
         pendingFrame = nil

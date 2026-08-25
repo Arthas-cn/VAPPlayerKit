@@ -6,7 +6,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        true
+        GiftCatalog.prepareImageCoders()
+        return true
     }
 
     func application(

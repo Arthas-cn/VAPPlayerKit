@@ -12,6 +12,8 @@
     XCTAssertEqual(options.loopCount, 1);
     XCTAssertEqual(options.audioMode, VPKAudioModeMuted);
     XCTAssertTrue(options.clearsAfterFinish);
+    XCTAssertEqual(options.dynamicImagePlaybackMode, VPKDynamicImagePlaybackModeAnimated);
+    XCTAssertFalse(VPKPlaybackOptions.canPlayAnimatedDynamicImages);
 }
 
 - (void)testSwiftRuntimeSymbolsExist {

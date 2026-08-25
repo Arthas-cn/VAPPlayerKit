@@ -25,6 +25,7 @@ public enum DynamicContent: @unchecked Sendable {
     /// 需要按 tag 指定字体时可在 provider 的 `font(forTag:)` 中返回字体。
     case textReplacement(String)
     /// 已经解码的图片，组件会按 slot 预缩放。
+    /// 宿主若链接 SDWebImage 并传入 `SDAnimatedImage`（帧数 > 1），可按 `PlaybackOptions.dynamicImagePlaybackMode` 播放动图。
     case image(UIImage)
     /// 仅表达「这是一个图片 URL」。下载仍由宿主完成；组件不会发网络请求。
     case imageURL(URL)

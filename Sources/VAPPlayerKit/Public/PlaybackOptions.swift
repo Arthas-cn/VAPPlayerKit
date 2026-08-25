@@ -1,5 +1,14 @@
 import UIKit
 
+/// 动态槽位图片的播放策略。对本次播放的全部图片槽位生效。
+@objc(VPKDynamicImagePlaybackMode)
+public enum DynamicImagePlaybackMode: Int, Sendable {
+    /// 动图、静图都只显示静图；若对象为动图则取第一帧。
+    case still = 0
+    /// 可动画图片播放动图，静图仍显示静图。默认。
+    case animated = 1
+}
+
 /// 一次播放的可变配置。必须在 `play` / `prepare` 前设置；播放中修改副本不会影响当前 session。
 ///
 /// `loopCount` 是总播放次数：`1` 播一次，`2` 播两次，`0` 无限循环。
@@ -20,6 +29,16 @@ public final class PlaybackOptions: NSObject, NSCopying {
     @objc public var clearsAfterFinish: Bool = true
     /// 后台 / 离屏时是挂起还是停止。
     @objc public var backgroundPolicy: BackgroundPolicy = .suspend
+    /// 动态槽位图片播放策略。默认按内容播放：可动画则播动图。
+    ///
+    /// 动图能力依赖宿主链接的 SDWebImage（WebP 还需 SDWebImageWebPCoder）。
+    /// 组件本身不链接这些库；运行时探测不到时始终按静图处理。
+    @objc public var dynamicImagePlaybackMode: DynamicImagePlaybackMode = .animated
+
+    /// 宿主进程是否链接了 SDWebImage。组件不会把它编进自身。
+    @objc public static var canPlayAnimatedDynamicImages: Bool {
+        SDWebImageRuntime.isAvailable
+    }
 
     /// 每次调用都返回新实例，避免共享可变单例。
     @objc(defaultOptions)
@@ -39,6 +58,7 @@ public final class PlaybackOptions: NSObject, NSCopying {
         copy.audioMode = audioMode
         copy.clearsAfterFinish = clearsAfterFinish
         copy.backgroundPolicy = backgroundPolicy
+        copy.dynamicImagePlaybackMode = dynamicImagePlaybackMode
         return copy
     }
 }

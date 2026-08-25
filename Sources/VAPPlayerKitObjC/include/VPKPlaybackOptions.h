@@ -22,6 +22,14 @@ typedef NS_ENUM(NSInteger, VPKBackgroundPolicy) {
     VPKBackgroundPolicyStop
 };
 
+/// 动态槽位图片播放策略。对应 Swift `DynamicImagePlaybackMode`。
+typedef NS_ENUM(NSInteger, VPKDynamicImagePlaybackMode) {
+    /// 动图、静图都只显示静图；动图取第一帧。
+    VPKDynamicImagePlaybackModeStill = 0,
+    /// 可动画图片播放动图，静图仍显示静图。默认。
+    VPKDynamicImagePlaybackModeAnimated = 1
+};
+
 /// 一次播放配置。`loopCount` 是总次数：1 播一次，0 无限循环。不要按旧 `repeatCount` 直传。
 @interface VPKPlaybackOptions : NSObject <NSCopying>
 
@@ -30,6 +38,10 @@ typedef NS_ENUM(NSInteger, VPKBackgroundPolicy) {
 @property (nonatomic, assign) VPKAudioMode audioMode;
 @property (nonatomic, assign) BOOL clearsAfterFinish;
 @property (nonatomic, assign) VPKBackgroundPolicy backgroundPolicy;
+@property (nonatomic, assign) VPKDynamicImagePlaybackMode dynamicImagePlaybackMode;
+
+/// 宿主是否链接了 SDWebImage。组件不会把它编进自身。
+@property (nonatomic, class, readonly) BOOL canPlayAnimatedDynamicImages;
 
 /// 每次返回新实例。
 @property (nonatomic, class, readonly, strong) VPKPlaybackOptions *defaultOptions;

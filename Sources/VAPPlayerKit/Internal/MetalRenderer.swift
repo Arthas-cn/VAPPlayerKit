@@ -116,7 +116,16 @@ final class MetalRenderer: @unchecked Sendable {
                     var textures: [String: MTLTexture] = [:]
                     var totalBytes = 0
                     for (id, content) in snapshot.contents {
-                        guard case .image(let image) = content, let cgImage = image.cgImage else { continue }
+                        let image: UIImage?
+                        switch content {
+                        case .image(let value):
+                            image = value
+                        case .animated(let slot):
+                            image = slot.firstFrame
+                        case .hidden:
+                            continue
+                        }
+                        guard let image, let cgImage = image.cgImage else { continue }
                         guard
                             let bytes = DynamicTextureLimits.byteCount(width: cgImage.width, height: cgImage.height),
                             bytes <= DynamicTextureLimits.maximumBytesPerTexture,
@@ -199,6 +208,14 @@ final class MetalRenderer: @unchecked Sendable {
 
     func update(snapshot: RenderSnapshot) {
         renderQueue.async { [weak self] in self?.snapshot = snapshot }
+    }
+
+    func updateDynamicTexture(id: String, image: UIImage) {
+        renderQueue.async { [weak self] in
+            guard let self, let device = self.device, !self.disposed, let cgImage = image.cgImage else { return }
+            guard let texture = try? Self.makeDynamicTexture(cgImage: cgImage, device: device) else { return }
+            self.dynamicTextures[id] = texture
+        }
     }
 
     /// 提交一帧。返回 false 表示 drawable 暂不可用；这不是播放终态。

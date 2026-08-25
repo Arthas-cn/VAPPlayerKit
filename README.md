@@ -58,6 +58,8 @@ func resolve(
 
 `.textReplacement` 会使用 vapc source 声明的颜色、粗体标记和槽位尺寸，并自动计算能放入槽位的系统字号。vapc 本身不包含字体文件或精确 point size，因此无法还原原字体族和精确字号；需要完全指定字体时可使用 `.text(_:attributes:)`，或由 provider 按 tag 返回字体。未设置 provider，或 provider 对某个 tag 返回 `nil` / `.hidden` 时，该动态槽位按透明空内容处理，视频仍会正常准备和播放。
 
+图片槽位始终传 `UIImage`。宿主若自行链接 SDWebImage，并传入 `SDAnimatedImage`（`animatedImageFrameCount > 1`），组件会按 `PlaybackOptions.dynamicImagePlaybackMode` 播放动图；动画 WebP 还需宿主注册 `SDWebImageWebPCoder`。组件本身不依赖这两个库，运行时探测不到时始终显示静图。动图循环跟随当前 VAP session，结束或停止时停掉。
+
 如果宿主需要按 tag 指定字体，可在 `DynamicContentProvider` 中实现 `font(forTag:)` 并返回 `UIFont`；返回 `nil` 时继续使用自动字号估算。自动估算最多缩小三次，仍放不下时由 UIKit 的 `byTruncatingTail` 模式截断。
 
 兼容性说明：`.textReplacement` 是 public enum 的新 case，已有调用方若对 `DynamicContent` 使用 exhaustive `switch`，升级后必须补充该分支（或使用 `@unknown default`）。这是源码破坏性变更，已有正式版本应按 SemVer major 发布，并在迁移说明中列出该 switch 修改。
@@ -91,6 +93,7 @@ Objective-C provider 也可实现可选的 `fontForTag:`，为文字 tag 指定 
 - 无 `vapc` 的旧格式按“左侧 Alpha、右侧 RGB、等宽画布”兼容。
 - Metal 透明合成、PTS 时钟、固定容量帧缓冲、过期帧丢弃和多 session token 隔离。
 - Swift typed 动态文字/图片，以及 Objective-C `UIImage` / 文字替换注入。
+- 可选的动态槽位动图：宿主链接 SDWebImage 后，GIF / 动画 WebP 可随 VAP 播放；未链接时退回静图。
 - 静音、MP4 内嵌音频和宿主管理外部音频三种策略。
 
 动态 `imageURL` 只用于表达资源地址，组件不会发起网络请求；provider 应先下载并返回
@@ -100,8 +103,9 @@ Objective-C provider 也可实现可选的 `fontForTag:`，为文字 tag 指定 
 
 Swift 示例 App 会把 `Tests/Fixtures/VAP` 打进 Bundle，并在启动时自动扫描全部 MP4：
 
-- 首页按文件展示素材清单，每行内嵌播放器并在可见时自动循环预览；负向 fixture 只显示错误标识。
-- 点击素材进入 Playback Lab 后自动播放，也可继续验证 prepare / play / pause / resume / stop / clear、三种缩放、循环、音频、后台策略、动态内容及实时指标。
+- 首页按文件展示素材清单，每行内嵌播放器并在可见时自动循环预览；负向 fixture 只显示错误标识。顶部专项场景用 `1.mp4` 专门验证 GIF / WebP 槽位动图。
+- 点击素材进入 Playback Lab 后自动播放，也可继续验证 prepare / play / pause / resume / stop / clear、三种缩放、循环、音频、后台策略、槽位静图/动图、动态内容及实时指标。
+- Swift Demo 引入 SDWebImage 与 SDWebImageWebPCoder，可播放 GIF / 动画 WebP；Objective-C Demo 不引入这两个库，同样资源只显示静图。
 - Playback Lab 可运行单素材自动冒烟测试并导出诊断报告；首页工具栏可运行全部 Bundle 素材的真机批测，每个合法素材至少播放 `min(1 秒, 实际时长)`。
 
 完整素材清单见 [`Tests/Fixtures/README.md`](Tests/Fixtures/README.md)。这些文件需要随仓库提交，供单元测试和 Demo 共用。

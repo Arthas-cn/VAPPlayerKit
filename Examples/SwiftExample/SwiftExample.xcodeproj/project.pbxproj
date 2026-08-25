@@ -12,6 +12,8 @@
 		11A000000000000000000042 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11A000000000000000000032 /* ViewController.swift */; };
 		11A000000000000000000043 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 11A000000000000000000033 /* Assets.xcassets */; };
 		11A000000000000000000044 /* VAPPlayerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 11A000000000000000000051 /* VAPPlayerKit */; };
+		11A0000000000000000000B4 /* SDWebImage in Frameworks */ = {isa = PBXBuildFile; productRef = 11A0000000000000000000B1 /* SDWebImage */; };
+		11A0000000000000000000B5 /* SDWebImageWebPCoder in Frameworks */ = {isa = PBXBuildFile; productRef = 11A0000000000000000000B3 /* SDWebImageWebPCoder */; };
 		11A000000000000000000081 /* VAP in Resources */ = {isa = PBXBuildFile; fileRef = 11A000000000000000000080 /* VAP */; };
 		11A000000000000000000085 /* FixtureCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11A000000000000000000082 /* FixtureCatalog.swift */; };
 		11A000000000000000000086 /* PlaybackDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11A000000000000000000083 /* PlaybackDetailViewController.swift */; };
@@ -56,6 +58,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				11A000000000000000000044 /* VAPPlayerKit in Frameworks */,
+				11A0000000000000000000B4 /* SDWebImage in Frameworks */,
+				11A0000000000000000000B5 /* SDWebImageWebPCoder in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -135,6 +139,8 @@
 			name = SwiftExample;
 			packageProductDependencies = (
 				11A000000000000000000051 /* VAPPlayerKit */,
+				11A0000000000000000000B1 /* SDWebImage */,
+				11A0000000000000000000B3 /* SDWebImageWebPCoder */,
 			);
 			productName = SwiftExample;
 			productReference = 11A000000000000000000003 /* SwiftExample.app */;
@@ -190,6 +196,8 @@
 			mainGroup = 11A000000000000000000020;
 			packageReferences = (
 				11A000000000000000000050 /* XCLocalSwiftPackageReference "../.." */,
+				11A0000000000000000000B0 /* XCRemoteSwiftPackageReference "SDWebImage" */,
+				11A0000000000000000000B2 /* XCRemoteSwiftPackageReference "SDWebImageWebPCoder" */,
 			);
 			productRefGroup = 11A000000000000000000021 /* Products */;
 			projectDirPath = "";
@@ -503,11 +511,40 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		11A0000000000000000000B0 /* XCRemoteSwiftPackageReference "SDWebImage" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/SDWebImage/SDWebImage.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.19.0;
+			};
+		};
+		11A0000000000000000000B2 /* XCRemoteSwiftPackageReference "SDWebImageWebPCoder" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/SDWebImage/SDWebImageWebPCoder.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.15.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		11A000000000000000000051 /* VAPPlayerKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 11A000000000000000000050 /* XCLocalSwiftPackageReference "../.." */;
 			productName = VAPPlayerKit;
+		};
+		11A0000000000000000000B1 /* SDWebImage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 11A0000000000000000000B0 /* XCRemoteSwiftPackageReference "SDWebImage" */;
+			productName = SDWebImage;
+		};
+		11A0000000000000000000B3 /* SDWebImageWebPCoder */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 11A0000000000000000000B2 /* XCRemoteSwiftPackageReference "SDWebImageWebPCoder" */;
+			productName = SDWebImageWebPCoder;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

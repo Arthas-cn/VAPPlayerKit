@@ -17,9 +17,10 @@ final class SwiftExampleUITests: XCTestCase {
         let identifiers = manifest.split(separator: ",").map(String.init)
         XCTAssertEqual(identifiers, (1...21).map { String($0) })
         let scannedCount = identifiers.count
-        XCTAssertEqual(list.cells.count, scannedCount)
+        XCTAssertEqual(list.cells.count, scannedCount + 1)
+        XCTAssertTrue(list.cells["catalog.item.animated"].waitForExistence(timeout: 5))
 
-        let first = list.cells.element(boundBy: 0)
+        let first = list.cells["catalog.item.0"]
         XCTAssertTrue(first.waitForExistence(timeout: 5))
         let rowPreview = app.otherElements["catalog.preview.0"]
         XCTAssertTrue(rowPreview.waitForExistence(timeout: 5))
@@ -52,11 +53,26 @@ final class SwiftExampleUITests: XCTestCase {
         XCTAssertGreaterThan(rendered, 0, "Lifecycle test did not submit a successful rendered frame.")
     }
 
+    func testAnimatedSlotScenePlaysOneMP4() throws {
+        let list = app.tables["catalog.list"]
+        XCTAssertTrue(list.waitForExistence(timeout: 10))
+        let scene = list.cells["catalog.item.animated"]
+        XCTAssertTrue(scene.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.otherElements["catalog.preview.animated"].waitForExistence(timeout: 5))
+        scene.tap()
+        XCTAssertTrue(app.otherElements["detail.player"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            waitForState(["PLAYING"], timeout: 12),
+            "Animated slot lab did not auto-play 1.mp4. \(detailDiagnostics())"
+        )
+        XCTAssertTrue(app.segmentedControls["detail.dynamicImagePlayback"].waitForExistence(timeout: 3))
+    }
+
     func testAutomatedSmokeMatrixOnDevice() throws {
         let list = app.tables["catalog.list"]
         XCTAssertTrue(list.waitForExistence(timeout: 10))
         XCTAssertGreaterThan(list.cells.count, 0)
-        list.cells.element(boundBy: 0).tap()
+        list.cells["catalog.item.0"].tap()
 
         tapControl("detail.autoTest")
         XCTAssertTrue(

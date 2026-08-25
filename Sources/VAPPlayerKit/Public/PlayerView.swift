@@ -420,6 +420,7 @@ private struct OptionsSignature: Equatable {
     let audioMode: AudioMode
     let clearsAfterFinish: Bool
     let backgroundPolicy: BackgroundPolicy
+    let dynamicImagePlaybackMode: DynamicImagePlaybackMode
 
     init(_ options: PlaybackOptions) {
         loopCount = options.loopCount
@@ -427,5 +428,6 @@ private struct OptionsSignature: Equatable {
         audioMode = options.audioMode
         clearsAfterFinish = options.clearsAfterFinish
         backgroundPolicy = options.backgroundPolicy
+        dynamicImagePlaybackMode = options.dynamicImagePlaybackMode
     }
 }
