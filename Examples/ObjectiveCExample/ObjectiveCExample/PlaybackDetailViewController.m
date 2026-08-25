@@ -43,6 +43,7 @@ static NSString *VPKFinishReasonName(VPKFinishReason reason) {
 @property (nonatomic, strong) UISegmentedControl *loopControl;
 @property (nonatomic, strong) UISegmentedControl *audioControl;
 @property (nonatomic, strong) UISegmentedControl *backgroundControl;
+@property (nonatomic, strong) UISegmentedControl *textOverflowControl;
 @property (nonatomic, strong) UISwitch *clearsSwitch;
 @property (nonatomic, strong, nullable) VPKAssetMetadata *currentMetadata;
 @property (nonatomic, assign) BOOL isAutomatedRun;
@@ -72,6 +73,7 @@ static NSString *VPKFinishReasonName(VPKFinishReason reason) {
         _loopControl = [[UISegmentedControl alloc] initWithItems:@[@"1×", @"2×", @"∞"]];
         _audioControl = [[UISegmentedControl alloc] initWithItems:@[@"静音", @"内嵌", @"外部", @"禁用"]];
         _backgroundControl = [[UISegmentedControl alloc] initWithItems:@[@"挂起", @"停止"]];
+        _textOverflowControl = [[UISegmentedControl alloc] initWithItems:@[@"截断", @"跑马灯"]];
         _clearsSwitch = [[UISwitch alloc] init];
         _logLines = [NSMutableArray array];
         _startedAt = NSProcessInfo.processInfo.systemUptime;
@@ -211,22 +213,26 @@ static NSString *VPKFinishReasonName(VPKFinishReason reason) {
     self.loopControl.selectedSegmentIndex = 0;
     self.audioControl.selectedSegmentIndex = 0;
     self.backgroundControl.selectedSegmentIndex = 0;
+    self.textOverflowControl.selectedSegmentIndex = 0;
     self.clearsSwitch.on = YES;
     UIColor *tint = [UIColor colorWithRed:0.15 green:0.43 blue:0.62 alpha:1];
     self.contentModeControl.selectedSegmentTintColor = tint;
     self.loopControl.selectedSegmentTintColor = tint;
     self.audioControl.selectedSegmentTintColor = tint;
     self.backgroundControl.selectedSegmentTintColor = tint;
+    self.textOverflowControl.selectedSegmentTintColor = tint;
     self.contentModeControl.accessibilityIdentifier = @"detail.contentMode";
     self.loopControl.accessibilityIdentifier = @"detail.loopCount";
     self.audioControl.accessibilityIdentifier = @"detail.audioMode";
     self.backgroundControl.accessibilityIdentifier = @"detail.backgroundPolicy";
+    self.textOverflowControl.accessibilityIdentifier = @"detail.textOverflow";
     self.clearsSwitch.accessibilityIdentifier = @"detail.clearsAfterFinish";
     return [self makeCardWithTitle:@"播放参数" rows:@[
         [self makeOptionRowWithTitle:@"画布模式" control:self.contentModeControl],
         [self makeOptionRowWithTitle:@"循环次数" control:self.loopControl],
         [self makeOptionRowWithTitle:@"音频策略" control:self.audioControl],
         [self makeOptionRowWithTitle:@"离屏策略" control:self.backgroundControl],
+        [self makeOptionRowWithTitle:@"文字溢出" control:self.textOverflowControl],
         [self makeOptionRowWithTitle:@"结束清屏" control:self.clearsSwitch]
     ]];
 }
@@ -306,6 +312,7 @@ static NSString *VPKFinishReasonName(VPKFinishReason reason) {
     options.loopCount = loops[loopIndex];
     options.audioMode = audioMode == NSNotFound ? audios[audioIndex] : (VPKAudioMode)audioMode;
     options.backgroundPolicy = self.backgroundControl.selectedSegmentIndex == 0 ? VPKBackgroundPolicySuspend : VPKBackgroundPolicyStop;
+    options.dynamicTextOverflowMode = self.textOverflowControl.selectedSegmentIndex == 0 ? VPKDynamicTextOverflowModeTruncate : VPKDynamicTextOverflowModeMarquee;
     options.clearsAfterFinish = self.clearsSwitch.isOn;
     return options;
 }

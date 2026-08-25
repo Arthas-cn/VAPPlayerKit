@@ -34,11 +34,13 @@ struct VPKFrameUniforms {
     uint3 padding;
 };
 
-/// 动态槽位顶点 / fragment 共用的画布矩形、mask 区域和旋转。
+/// 动态槽位顶点 / fragment 共用的画布矩形、mask 区域、旋转和 source UV 窗口。
 struct VPKAttachmentUniforms {
     float4 renderRect;
     float4 maskRect;
     float4 rgbRect;
+    float2 sourceUVOrigin;
+    float2 sourceUVSize;
     uint rotation;
     uint colorMatrix;
     uint2 padding;
@@ -116,7 +118,7 @@ vertex VPKAttachmentVertexOut vpk_attachment_vertex(
 
     VPKAttachmentVertexOut out;
     out.position = float4(canvas.x * 2.0 - 1.0, 1.0 - canvas.y * 2.0, 0.0, 1.0);
-    out.sourceCoordinate = corner;
+    out.sourceCoordinate = uniforms.sourceUVOrigin + corner * uniforms.sourceUVSize;
     out.maskCoordinate = uniforms.maskRect.xy + maskCorner * uniforms.maskRect.zw;
     out.canvasCoordinate = canvas;
     return out;

@@ -7,7 +7,8 @@ NS_ASSUME_NONNULL_BEGIN
 /// 动态内容提供者。组件不内置下载器和图片库；completion 必须且只能调用一次。
 ///
 /// 文字槽位应通过 `replacementText` 返回替换字符串，组件会使用 vapc 颜色、粗体标记
-/// 和槽位尺寸自动估算字号（与 Swift `.textReplacement` 相同）。图片槽位返回 `image`。
+/// 和槽位尺寸自动估算字号（与 Swift `.textReplacement` 相同）。溢出默认截断，
+/// 可通过 `VPKPlaybackOptions.dynamicTextOverflowMode` 切换为跑马灯。图片槽位返回 `image`。
 @protocol VPKDynamicContentProvider <NSObject>
 /// 解析 tag。文字槽位返回 `replacementText`，图片槽位返回 `image`；失败传 `error`。
 /// completion 必须且只能调用一次。

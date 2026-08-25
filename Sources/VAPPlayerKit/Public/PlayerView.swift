@@ -481,6 +481,9 @@ private struct OptionsSignature: Equatable {
     let clearsAfterFinish: Bool
     let backgroundPolicy: BackgroundPolicy
     let dynamicImagePlaybackMode: DynamicImagePlaybackMode
+    let dynamicTextOverflowMode: DynamicTextOverflowMode
+    let marqueeSpeed: CGFloat
+    let marqueeStartDelay: TimeInterval
 
     init(_ options: PlaybackOptions) {
         loopCount = options.loopCount
@@ -489,5 +492,8 @@ private struct OptionsSignature: Equatable {
         clearsAfterFinish = options.clearsAfterFinish
         backgroundPolicy = options.backgroundPolicy
         dynamicImagePlaybackMode = options.dynamicImagePlaybackMode
+        dynamicTextOverflowMode = options.dynamicTextOverflowMode
+        marqueeSpeed = options.marqueeSpeed
+        marqueeStartDelay = options.marqueeStartDelay
     }
 }

@@ -9,6 +9,15 @@ public enum DynamicImagePlaybackMode: Int, Sendable {
     case animated = 1
 }
 
+/// 动态文字放不下槽位时的溢出策略。对本次播放的全部文字槽位生效。
+@objc(VPKDynamicTextOverflowMode)
+public enum DynamicTextOverflowMode: Int, Sendable {
+    /// 单行尾部截断为 `…`。默认，兼容现有行为。
+    case truncate = 0
+    /// 单行从右向左跑马灯；能放下时仍静态居中。
+    case marquee = 1
+}
+
 /// 一次播放的可变配置。必须在 `play` / `prepare` 前设置；播放中修改副本不会影响当前 session。
 ///
 /// `loopCount` 是总播放次数：`1` 播一次，`2` 播两次，`0` 无限循环。
@@ -34,6 +43,24 @@ public final class PlaybackOptions: NSObject, NSCopying {
     /// 动图能力依赖宿主链接的 SDWebImage（WebP 还需 SDWebImageWebPCoder）。
     /// 组件本身不链接这些库；运行时探测不到时始终按静图处理。
     @objc public var dynamicImagePlaybackMode: DynamicImagePlaybackMode = .animated
+    /// 动态文字溢出策略。默认尾部截断；仅当文字宽于槽位时才会跑马灯。
+    ///
+    /// 同时作用于 `.textReplacement`、`.text(attributes:)` 和 ObjC `replacementText`。
+    @objc public var dynamicTextOverflowMode: DynamicTextOverflowMode = .truncate
+    /// 跑马灯速度，单位 pt/s。仅 `dynamicTextOverflowMode == .marquee` 时生效。默认 80。
+    /// 非正值回退为 80。
+    @objc public var marqueeSpeed: CGFloat = 80 {
+        didSet {
+            if marqueeSpeed <= 0 { marqueeSpeed = 80 }
+        }
+    }
+    /// 跑马灯起步停顿，单位秒。每个滚动周期开头都会停顿，从文字真正上屏开始算。
+    /// 仅跑马灯模式生效。默认 0.6。负值钳制为 0。
+    @objc public var marqueeStartDelay: TimeInterval = 0.6 {
+        didSet {
+            if marqueeStartDelay < 0 { marqueeStartDelay = 0 }
+        }
+    }
 
     /// 宿主进程是否链接了 SDWebImage。组件不会把它编进自身。
     @objc public static var canPlayAnimatedDynamicImages: Bool {
@@ -46,7 +73,7 @@ public final class PlaybackOptions: NSObject, NSCopying {
         PlaybackOptions()
     }
 
-    /// 使用全部默认值：播一次、静音、AspectFit、结束后清画面、后台挂起、动态图按内容播放。
+    /// 使用全部默认值：播一次、静音、AspectFit、结束后清画面、后台挂起、动态图按内容播放、文字尾部截断。
     @objc public override init() {
         super.init()
     }
@@ -60,6 +87,9 @@ public final class PlaybackOptions: NSObject, NSCopying {
         copy.clearsAfterFinish = clearsAfterFinish
         copy.backgroundPolicy = backgroundPolicy
         copy.dynamicImagePlaybackMode = dynamicImagePlaybackMode
+        copy.dynamicTextOverflowMode = dynamicTextOverflowMode
+        copy.marqueeSpeed = marqueeSpeed
+        copy.marqueeStartDelay = marqueeStartDelay
         return copy
     }
 }

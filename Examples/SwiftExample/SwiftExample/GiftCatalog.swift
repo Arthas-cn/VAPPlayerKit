@@ -10,7 +10,53 @@ enum GiftCatalog {
         case animatedOnly
     }
 
-    static let replacementText = "Swift VAP Test"
+    static let replacementText = "Swift VAP Test · 超长昵称用于验证文字跑马灯"
+
+    struct ReplacementSample {
+        let name: String
+        let text: String
+    }
+
+    /// Playback Lab 用来对照截断 / 跑马灯的替换文字物料。
+    static let replacementSamples: [ReplacementSample] = [
+        ReplacementSample(
+            name: "长昵称 · 溢出",
+            text: replacementText
+        ),
+        ReplacementSample(
+            name: "短文案 · 应静态",
+            text: "VAP"
+        ),
+        ReplacementSample(
+            name: "中等英文",
+            text: "Swift VAP Test"
+        ),
+        ReplacementSample(
+            name: "超长中英混合",
+            text: "恭喜 Arthas 获得传说礼物「星河旅人」· Swift VAP Marquee · 这段文字用来观察无缝循环"
+        ),
+        ReplacementSample(
+            name: "重复填充",
+            text: String(repeating: "跑马灯滚动 ", count: 8)
+        )
+    ]
+
+    static func replacementSampleCount() -> Int {
+        max(replacementSamples.count, 1)
+    }
+
+    static func replacementSampleDisplayName(at index: Int) -> String {
+        let samples = replacementSamples
+        guard !samples.isEmpty else { return "无文案" }
+        return samples[((index % samples.count) + samples.count) % samples.count].name
+    }
+
+    static func replacementText(at index: Int) -> String {
+        let samples = replacementSamples
+        guard !samples.isEmpty else { return replacementText }
+        return samples[((index % samples.count) + samples.count) % samples.count].text
+    }
+
     private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp"]
     private static let animatedExtensions: Set<String> = ["gif", "webp"]
     private static let webPCoderRegistration: Void = {
@@ -24,10 +70,11 @@ enum GiftCatalog {
     static func content(
         for source: SourceMetadata,
         imagePolicy: ImagePolicy = .mixed,
-        animatedIndex: Int = 0
+        animatedIndex: Int = 0,
+        replacementIndex: Int = 0
     ) -> DynamicContent {
         if source.kind == .text {
-            return .textReplacement(replacementText)
+            return .textReplacement(replacementText(at: replacementIndex))
         }
         if let gift = randomImage(policy: imagePolicy, tag: source.tag, animatedIndex: animatedIndex) {
             return .image(gift)

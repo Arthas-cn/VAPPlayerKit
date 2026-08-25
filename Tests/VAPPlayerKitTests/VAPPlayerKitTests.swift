@@ -12,25 +12,103 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertTrue(options.clearsAfterFinish)
         XCTAssertEqual(options.backgroundPolicy, .suspend)
         XCTAssertEqual(options.dynamicImagePlaybackMode, .animated)
+        XCTAssertEqual(options.dynamicTextOverflowMode, .truncate)
+        XCTAssertEqual(options.marqueeSpeed, 80, accuracy: 0.001)
+        XCTAssertEqual(options.marqueeStartDelay, 0.6, accuracy: 0.0001)
     }
 
     func testPlaybackOptionsCopyIsIndependent() {
         let original = PlaybackOptions.defaultOptions
         original.loopCount = 0
         original.dynamicImagePlaybackMode = .still
+        original.dynamicTextOverflowMode = .marquee
+        original.marqueeSpeed = 80
+        original.marqueeStartDelay = 1.2
         let copy = original.copy() as! PlaybackOptions
         copy.loopCount = 2
         copy.dynamicImagePlaybackMode = .animated
+        copy.dynamicTextOverflowMode = .truncate
+        copy.marqueeSpeed = 20
+        copy.marqueeStartDelay = 0
         XCTAssertEqual(original.loopCount, 0)
         XCTAssertEqual(original.dynamicImagePlaybackMode, .still)
+        XCTAssertEqual(original.dynamicTextOverflowMode, .marquee)
+        XCTAssertEqual(original.marqueeSpeed, 80, accuracy: 0.001)
+        XCTAssertEqual(original.marqueeStartDelay, 1.2, accuracy: 0.0001)
         XCTAssertEqual(copy.loopCount, 2)
         XCTAssertEqual(copy.dynamicImagePlaybackMode, .animated)
+        XCTAssertEqual(copy.dynamicTextOverflowMode, .truncate)
+        XCTAssertEqual(copy.marqueeSpeed, 20, accuracy: 0.001)
+        XCTAssertEqual(copy.marqueeStartDelay, 0, accuracy: 0.0001)
     }
 
     func testNegativeLoopCountFallsBackToSinglePlayback() {
         let options = PlaybackOptions.defaultOptions
         options.loopCount = -1
         XCTAssertEqual(options.loopCount, 1)
+    }
+
+    func testMarqueeOptionClampsInvalidSpeedAndDelay() {
+        let options = PlaybackOptions.defaultOptions
+        options.marqueeSpeed = 0
+        XCTAssertEqual(options.marqueeSpeed, 80, accuracy: 0.001)
+        options.marqueeSpeed = -12
+        XCTAssertEqual(options.marqueeSpeed, 80, accuracy: 0.001)
+        options.marqueeStartDelay = -0.5
+        XCTAssertEqual(options.marqueeStartDelay, 0, accuracy: 0.0001)
+    }
+
+    func testMarqueeLayoutOffsetHoldsThenWraps() {
+        XCTAssertEqual(
+            MarqueeLayout.offset(elapsed: 0.3, startDelay: 0.6, speed: 40, cycleWidth: 100),
+            0,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            MarqueeLayout.offset(elapsed: 0.6, startDelay: 0.6, speed: 40, cycleWidth: 100),
+            0,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            MarqueeLayout.offset(elapsed: 1.6, startDelay: 0.6, speed: 40, cycleWidth: 100),
+            40,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            MarqueeLayout.offset(elapsed: 3.1, startDelay: 0.6, speed: 40, cycleWidth: 100),
+            0,
+            accuracy: 0.001
+        )
+        // 周期 = 0.6s 停顿 + 100/40s 滚动 = 3.1s。下一圈开头仍应停顿，而不是立刻接着滚。
+        XCTAssertEqual(
+            MarqueeLayout.offset(elapsed: 3.4, startDelay: 0.6, speed: 40, cycleWidth: 100),
+            0,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            MarqueeLayout.offset(elapsed: 4.7, startDelay: 0.6, speed: 40, cycleWidth: 100),
+            40,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            MarqueeLayout.offset(elapsed: 0.5, startDelay: 0, speed: 40, cycleWidth: 100),
+            20,
+            accuracy: 0.001
+        )
+        let uv = MarqueeLayout.sourceUV(offset: 40, slotWidth: 80, textureWidth: 200)
+        XCTAssertEqual(uv.origin.x, 0.2, accuracy: 0.0001)
+        XCTAssertEqual(uv.size.x, 0.4, accuracy: 0.0001)
+        XCTAssertEqual(uv.origin.y, 0, accuracy: 0.0001)
+        XCTAssertEqual(uv.size.y, 1, accuracy: 0.0001)
+    }
+
+    func testMarqueeLayoutRejectsOversizedStrip() {
+        let huge = CGSize(width: CGFloat(DynamicTextureLimits.maximumTextureDimension + 1), height: 40)
+        XCTAssertFalse(MarqueeLayout.canAllocateStrip(size: huge))
+        XCTAssertEqual(MarqueeLayout.gap(slotWidth: 40), 25, accuracy: 0.001)
+        XCTAssertEqual(MarqueeLayout.gap(slotWidth: 200), 25, accuracy: 0.001)
+        XCTAssertEqual(MarqueeLayout.defaultSpeed, 80, accuracy: 0.001)
+        XCTAssertTrue(MarqueeLayout.canAllocateStrip(size: CGSize(width: 400, height: 40)))
     }
 
     func testModuleBundleIsAvailable() {
@@ -283,6 +361,83 @@ final class VAPPlayerKitTests: XCTestCase {
         )
 
         XCTAssertGreaterThan(providedFont.pointSize, 0)
+    }
+
+    @MainActor
+    func testOverflowingTextUsesTruncationByDefault() {
+        let source = makeNarrowTextSource()
+        let text = "THIS replacement is too long"
+        let attributes = TextAttributes(font: UIFont.monospacedSystemFont(ofSize: 20, weight: .regular), color: .white)
+        let resolved = DynamicResolver.resolveText(text, attributes: attributes, source: source, overflow: .truncate)
+        guard case .image(let image) = resolved else {
+            return XCTFail("Default overflow must stay a slot-sized truncated texture")
+        }
+        XCTAssertEqual(image.size.width, source.slotSize.width, accuracy: 0.5)
+        XCTAssertEqual(image.size.height, source.slotSize.height, accuracy: 0.5)
+    }
+
+    @MainActor
+    func testOverflowingTextUsesMarqueeStripWhenRequested() {
+        let source = makeNarrowTextSource()
+        let text = "THIS replacement is too long"
+        let attributes = TextAttributes(font: UIFont.monospacedSystemFont(ofSize: 20, weight: .regular), color: .white)
+        let resolved = DynamicResolver.resolveText(text, attributes: attributes, source: source, overflow: .marquee)
+        guard case .marquee(let slot) = resolved else {
+            return XCTFail("Overflowing text must become a marquee strip")
+        }
+        XCTAssertGreaterThan(slot.strip.size.width, source.slotSize.width)
+        XCTAssertEqual(slot.strip.size.height, source.slotSize.height, accuracy: 0.5)
+        XCTAssertEqual(slot.slotWidth, source.slotSize.width, accuracy: 0.5)
+        XCTAssertGreaterThan(slot.cycleWidth, source.slotSize.width)
+        XCTAssertEqual(slot.textureWidth, slot.strip.size.width, accuracy: 0.5)
+    }
+
+    @MainActor
+    func testFittingTextStaysStaticEvenWhenMarqueeIsRequested() {
+        let source = VapcSource(
+            id: "nickname",
+            kind: .text,
+            tag: "nickname",
+            slotSize: CGSize(width: 240, height: 52),
+            loadType: "local",
+            fitType: "fitXY",
+            color: "#FFFFFF",
+            style: nil
+        )
+        let attributes = TextAttributes(font: UIFont.systemFont(ofSize: 16), color: .white)
+        let resolved = DynamicResolver.resolveText("Hi", attributes: attributes, source: source, overflow: .marquee)
+        guard case .image(let image) = resolved else {
+            return XCTFail("Text that fits must stay a static slot texture")
+        }
+        XCTAssertEqual(image.size, source.slotSize)
+    }
+
+    @MainActor
+    func testOversizedMarqueeStripFallsBackToTruncation() {
+        let source = makeNarrowTextSource()
+        let text = String(repeating: "W", count: 2_000)
+        let attributes = TextAttributes(font: UIFont.systemFont(ofSize: 40), color: .white)
+        let resolved = DynamicResolver.resolveText(text, attributes: attributes, source: source, overflow: .marquee)
+        guard case .image(let image) = resolved else {
+            return XCTFail("Strip over the texture budget must fall back to truncation")
+        }
+        XCTAssertEqual(image.size.width, source.slotSize.width, accuracy: 0.5)
+        XCTAssertEqual(image.size.height, source.slotSize.height, accuracy: 0.5)
+    }
+
+    @MainActor
+    func testResolverMarqueePathMaterializesReplacementText() async throws {
+        let source = makeNarrowTextSource()
+        let provider = FontAwareReplacementTextProviderStub(
+            font: UIFont.monospacedSystemFont(ofSize: 20, weight: .regular)
+        )
+        let resolver = DynamicResolver()
+        resolver.provider = provider
+        let snapshot = try await resolver.resolve(sources: [source], timeout: 1, textOverflow: .marquee)
+        guard case .marquee(let slot) = snapshot.contents[source.id] else {
+            return XCTFail("Resolver must honor session-level marquee overflow")
+        }
+        XCTAssertGreaterThan(slot.strip.size.width, source.slotSize.width)
     }
 
     @MainActor
@@ -709,6 +864,19 @@ private func premultipliedPixels(_ image: UIImage) throws -> [UInt8] {
 
 private func alpha(in pixels: [UInt8], width: Int, x: Int, y: Int) -> UInt8 {
     pixels[(y * width + x) * 4 + 3]
+}
+
+private func makeNarrowTextSource() -> VapcSource {
+    VapcSource(
+        id: "nickname",
+        kind: .text,
+        tag: "nickname",
+        slotSize: CGSize(width: 40, height: 60),
+        loadType: "local",
+        fitType: "fitXY",
+        color: "#FFFFFF",
+        style: nil
+    )
 }
 
 private final class ReplacementTextProviderStub: DynamicContentProvider {

@@ -13,6 +13,9 @@
     XCTAssertEqual(options.audioMode, VPKAudioModeMuted);
     XCTAssertTrue(options.clearsAfterFinish);
     XCTAssertEqual(options.dynamicImagePlaybackMode, VPKDynamicImagePlaybackModeAnimated);
+    XCTAssertEqual(options.dynamicTextOverflowMode, VPKDynamicTextOverflowModeTruncate);
+    XCTAssertEqualWithAccuracy(options.marqueeSpeed, 80, 0.001);
+    XCTAssertEqualWithAccuracy(options.marqueeStartDelay, 0.6, 0.0001);
     XCTAssertFalse(VPKPlaybackOptions.canPlayAnimatedDynamicImages);
 }
 

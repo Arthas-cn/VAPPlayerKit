@@ -21,14 +21,23 @@ private struct FrameUniforms {
     var padding = SIMD3<UInt32>(repeating: 0)
 }
 
-/// 动态槽位 overlay 的画布矩形、mask 区域和旋转。
+/// 动态槽位 overlay 的画布矩形、mask 区域、旋转和 source UV 窗口。
 private struct AttachmentUniforms {
     var renderRect: SIMD4<Float>
     var maskRect: SIMD4<Float>
     var rgbRect: SIMD4<Float>
+    var sourceUVOrigin: SIMD2<Float>
+    var sourceUVSize: SIMD2<Float>
     var rotation: UInt32
     var colorMatrix: UInt32
     var padding = SIMD2<UInt32>(repeating: 0)
+}
+
+/// 动态纹理上的可见采样窗口。静图 / 动图为整张；跑马灯为滑动矩形。
+private struct SourceUV {
+    var origin: SIMD2<Float>
+    var size: SIMD2<Float>
+    static let identity = SourceUV(origin: SIMD2(0, 0), size: SIMD2(1, 1))
 }
 
 /// GPU 尚未完成时必须继续持有的帧资源。共享 texture cache 由 `MetalContext` 持有；
@@ -71,6 +80,8 @@ final class MetalRenderer: @unchecked Sendable {
     private var attachmentPunchPipeline: MTLRenderPipelineState?
     /// 按 vapc source id 缓存的动态纹理。
     private var dynamicTextures: [String: MTLTexture] = [:]
+    /// 按 vapc source id 缓存的动态纹理 UV 窗口。缺省视为整张纹理。
+    private var sourceUVs: [String: SourceUV] = [:]
     private weak var layer: CAMetalLayer?
     private var snapshot = RenderSnapshot(drawableSize: .zero, contentMode: .scaleAspectFit)
     /// dispose 后拒绝新的 render / 动态纹理更新。
@@ -127,14 +138,24 @@ final class MetalRenderer: @unchecked Sendable {
                 }
                 do {
                     var textures: [String: MTLTexture] = [:]
+                    var uvs: [String: SourceUV] = [:]
                     var totalBytes = 0
                     for (id, content) in snapshot.contents {
                         let image: UIImage?
+                        var uv = SourceUV.identity
                         switch content {
                         case .image(let value):
                             image = value
                         case .animated(let slot):
                             image = slot.firstFrame
+                        case .marquee(let slot):
+                            image = slot.strip
+                            let window = MarqueeLayout.sourceUV(
+                                offset: 0,
+                                slotWidth: slot.slotWidth,
+                                textureWidth: slot.textureWidth
+                            )
+                            uv = SourceUV(origin: window.origin, size: window.size)
                         case .hidden:
                             continue
                         }
@@ -148,8 +169,10 @@ final class MetalRenderer: @unchecked Sendable {
                         }
                         totalBytes += bytes
                         textures[id] = try Self.makeDynamicTexture(cgImage: cgImage, device: device)
+                        uvs[id] = uv
                     }
                     self.dynamicTextures = textures
+                    self.sourceUVs = uvs
                     continuation.resume(returning: ())
                 } catch {
                     continuation.resume(throwing: PlaybackError.metalUnavailable)
@@ -227,6 +250,14 @@ final class MetalRenderer: @unchecked Sendable {
             guard let self, let device = self.device, !self.disposed, let cgImage = image.cgImage else { return }
             guard let texture = try? Self.makeDynamicTexture(cgImage: cgImage, device: device) else { return }
             self.dynamicTextures[id] = texture
+        }
+    }
+
+    /// 跑马灯换窗时更新对应 source id 的采样矩形。已 dispose 则忽略。
+    func updateSourceUV(id: String, origin: SIMD2<Float>, size: SIMD2<Float>) {
+        renderQueue.async { [weak self] in
+            guard let self, !self.disposed else { return }
+            self.sourceUVs[id] = SourceUV(origin: origin, size: size)
         }
     }
 
@@ -318,10 +349,13 @@ final class MetalRenderer: @unchecked Sendable {
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         for attachment in vapc.frames[frame.index] ?? [] {
             guard let texture = dynamicTextures[attachment.sourceID] else { continue }
+            let uv = sourceUVs[attachment.sourceID] ?? .identity
             var attachmentUniforms = AttachmentUniforms(
                 renderRect: normalized(attachment.renderRect, within: vapc.canvasSize),
                 maskRect: normalized(attachment.maskRect, within: vapc.encodedVideoSize),
                 rgbRect: uniforms.rgbRect,
+                sourceUVOrigin: uv.origin,
+                sourceUVSize: uv.size,
                 rotation: UInt32(max(0, attachment.maskRotation)),
                 colorMatrix: uniforms.colorMatrix
             )
@@ -388,6 +422,7 @@ final class MetalRenderer: @unchecked Sendable {
         attachmentPipeline = nil
         attachmentPunchPipeline = nil
         dynamicTextures.removeAll()
+        sourceUVs.removeAll()
         library = nil
         commandQueue = nil
         device = nil

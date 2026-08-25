@@ -24,9 +24,15 @@ final class PlaybackDetailViewController: UIViewController {
     private let audioControl = UISegmentedControl(items: ["静音", "内嵌", "外部", "禁用"])
     private let backgroundControl = UISegmentedControl(items: ["挂起", "停止"])
     private let dynamicImageControl = UISegmentedControl(items: ["静图", "动图"])
+    private let textOverflowControl = UISegmentedControl(items: ["截断", "跑马灯"])
+    private let marqueeSpeedControl = UISegmentedControl(items: ["20", "40", "80"])
+    private let marqueeDelayControl = UISegmentedControl(items: ["0s", "0.6s", "1.2s"])
     private let previousGiftButton = UIButton(type: .system)
     private let nextGiftButton = UIButton(type: .system)
     private let giftNameLabel = UILabel()
+    private let previousTextButton = UIButton(type: .system)
+    private let nextTextButton = UIButton(type: .system)
+    private let textSampleLabel = UILabel()
     private let clearsSwitch = UISwitch()
     private var operationTask: Task<Void, Never>?
     private var currentMetadata: AssetMetadata?
@@ -35,6 +41,7 @@ final class PlaybackDetailViewController: UIViewController {
     private var currentFailure: Error?
     private var currentFinishReason: FinishReason?
     private var hasAutoPlayed = false
+    private var replacementTextIndex = 0
 
     init(fixture: VAPFixture, scenario: Scenario = .catalog, animatedGiftIndex: Int = 0) {
         self.fixture = fixture
@@ -119,6 +126,7 @@ final class PlaybackDetailViewController: UIViewController {
         if scenario == .animatedSlots {
             contentStack.addArrangedSubview(makeGiftSwitcherCard())
         }
+        contentStack.addArrangedSubview(makeTextSampleCard())
         contentStack.addArrangedSubview(makeControlsCard())
         contentStack.addArrangedSubview(makeDiagnosticsCard())
     }
@@ -190,8 +198,20 @@ final class PlaybackDetailViewController: UIViewController {
         audioControl.selectedSegmentIndex = 0
         backgroundControl.selectedSegmentIndex = 0
         dynamicImageControl.selectedSegmentIndex = 1
+        textOverflowControl.selectedSegmentIndex = 0
+        marqueeSpeedControl.selectedSegmentIndex = 2
+        marqueeDelayControl.selectedSegmentIndex = 1
         clearsSwitch.isOn = true
-        [contentModeControl, loopControl, audioControl, backgroundControl, dynamicImageControl].forEach {
+        [
+            contentModeControl,
+            loopControl,
+            audioControl,
+            backgroundControl,
+            dynamicImageControl,
+            textOverflowControl,
+            marqueeSpeedControl,
+            marqueeDelayControl
+        ].forEach {
             $0.selectedSegmentTintColor = UIColor(red: 0.15, green: 0.43, blue: 0.62, alpha: 1)
         }
         contentModeControl.accessibilityIdentifier = "detail.contentMode"
@@ -199,6 +219,9 @@ final class PlaybackDetailViewController: UIViewController {
         audioControl.accessibilityIdentifier = "detail.audioMode"
         backgroundControl.accessibilityIdentifier = "detail.backgroundPolicy"
         dynamicImageControl.accessibilityIdentifier = "detail.dynamicImagePlayback"
+        textOverflowControl.accessibilityIdentifier = "detail.textOverflow"
+        marqueeSpeedControl.accessibilityIdentifier = "detail.marqueeSpeed"
+        marqueeDelayControl.accessibilityIdentifier = "detail.marqueeDelay"
         clearsSwitch.accessibilityIdentifier = "detail.clearsAfterFinish"
         return makeCard(title: "播放参数", rows: [
             makeOptionRow(title: "画布模式", control: contentModeControl),
@@ -206,6 +229,9 @@ final class PlaybackDetailViewController: UIViewController {
             makeOptionRow(title: "音频策略", control: audioControl),
             makeOptionRow(title: "离屏策略", control: backgroundControl),
             makeOptionRow(title: "槽位图片", control: dynamicImageControl),
+            makeOptionRow(title: "文字溢出", control: textOverflowControl),
+            makeOptionRow(title: "跑马灯速度", control: marqueeSpeedControl),
+            makeOptionRow(title: "起步停顿", control: marqueeDelayControl),
             makeOptionRow(title: "结束清屏", control: clearsSwitch)
         ])
     }
@@ -233,6 +259,29 @@ final class PlaybackDetailViewController: UIViewController {
         return makeCard(title: "切换动图", rows: [row])
     }
 
+    private func makeTextSampleCard() -> UIView {
+        previousTextButton.configuration = giftSwitcherConfiguration("上一组", icon: "chevron.left")
+        nextTextButton.configuration = giftSwitcherConfiguration("下一组", icon: "chevron.right")
+        previousTextButton.accessibilityIdentifier = "detail.text.previous"
+        nextTextButton.accessibilityIdentifier = "detail.text.next"
+        previousTextButton.addTarget(self, action: #selector(previousTextTapped), for: .touchUpInside)
+        nextTextButton.addTarget(self, action: #selector(nextTextTapped), for: .touchUpInside)
+        textSampleLabel.font = .monospacedSystemFont(ofSize: 13, weight: .semibold)
+        textSampleLabel.textColor = UIColor(red: 0.54, green: 0.9, blue: 0.75, alpha: 1)
+        textSampleLabel.textAlignment = .center
+        textSampleLabel.lineBreakMode = .byTruncatingMiddle
+        textSampleLabel.accessibilityIdentifier = "detail.text.name"
+        refreshTextSampleName()
+        let row = UIStackView(arrangedSubviews: [previousTextButton, textSampleLabel, nextTextButton])
+        row.axis = .horizontal
+        row.alignment = .center
+        row.spacing = 10
+        textSampleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        previousTextButton.setContentHuggingPriority(.required, for: .horizontal)
+        nextTextButton.setContentHuggingPriority(.required, for: .horizontal)
+        return makeCard(title: "切换替换文字", rows: [row])
+    }
+
     private func giftSwitcherConfiguration(_ title: String, icon: String) -> UIButton.Configuration {
         var configuration = UIButton.Configuration.tinted()
         configuration.title = title
@@ -247,6 +296,10 @@ final class PlaybackDetailViewController: UIViewController {
 
     private func refreshGiftName() {
         giftNameLabel.text = GiftCatalog.animatedGiftDisplayName(at: animatedGiftIndex)
+    }
+
+    private func refreshTextSampleName() {
+        textSampleLabel.text = GiftCatalog.replacementSampleDisplayName(at: replacementTextIndex)
     }
 
     private func makeControlsCard() -> UIView {
@@ -309,6 +362,9 @@ final class PlaybackDetailViewController: UIViewController {
         options.audioMode = audioMode ?? [.muted, .embedded, .external, .disabled][audioControl.selectedSegmentIndex]
         options.backgroundPolicy = backgroundControl.selectedSegmentIndex == 0 ? .suspend : .stop
         options.dynamicImagePlaybackMode = dynamicImageControl.selectedSegmentIndex == 0 ? .still : .animated
+        options.dynamicTextOverflowMode = textOverflowControl.selectedSegmentIndex == 0 ? .truncate : .marquee
+        options.marqueeSpeed = [20, 40, 80][marqueeSpeedControl.selectedSegmentIndex]
+        options.marqueeStartDelay = [0, 0.6, 1.2][marqueeDelayControl.selectedSegmentIndex]
         options.clearsAfterFinish = clearsSwitch.isOn
         return options
     }
@@ -333,11 +389,29 @@ final class PlaybackDetailViewController: UIViewController {
         cycleAnimatedGift(by: 1)
     }
 
+    @objc private func previousTextTapped() {
+        cycleReplacementText(by: -1)
+    }
+
+    @objc private func nextTextTapped() {
+        cycleReplacementText(by: 1)
+    }
+
     private func cycleAnimatedGift(by delta: Int) {
         let count = max(GiftCatalog.animatedGiftCount(), 1)
         animatedGiftIndex = (animatedGiftIndex + delta % count + count) % count
         refreshGiftName()
         diagnostics.append("ACTION", "switch gift \(GiftCatalog.animatedGiftDisplayName(at: animatedGiftIndex))")
+        cancelOperation()
+        stateLabel.text = "PREPARING"
+        playerView.play(url: fixture.url, options: currentOptions())
+    }
+
+    private func cycleReplacementText(by delta: Int) {
+        let count = GiftCatalog.replacementSampleCount()
+        replacementTextIndex = (replacementTextIndex + delta % count + count) % count
+        refreshTextSampleName()
+        diagnostics.append("ACTION", "switch text \(GiftCatalog.replacementSampleDisplayName(at: replacementTextIndex))")
         cancelOperation()
         stateLabel.text = "PREPARING"
         playerView.play(url: fixture.url, options: currentOptions())
@@ -609,11 +683,16 @@ extension PlaybackDetailViewController: DynamicContentProvider {
         source: SourceMetadata,
         completion: @escaping (DynamicContent?, Error?) -> Void
     ) {
-        diagnostics.append("DYNAMIC", "resolve \(tag) (\(source.kind == .text ? "txt" : "img")), \(Int(source.slotSize.width))×\(Int(source.slotSize.height))")
+        diagnostics.append(
+            "DYNAMIC",
+            "resolve \(tag) (\(source.kind == .text ? "txt" : "img")), \(Int(source.slotSize.width))×\(Int(source.slotSize.height))"
+                + (source.kind == .text ? ", \(GiftCatalog.replacementSampleDisplayName(at: replacementTextIndex))" : "")
+        )
         completion(GiftCatalog.content(
             for: source,
             imagePolicy: scenario == .animatedSlots ? .animatedOnly : .mixed,
-            animatedIndex: animatedGiftIndex
+            animatedIndex: animatedGiftIndex,
+            replacementIndex: replacementTextIndex
         ), nil)
     }
 }

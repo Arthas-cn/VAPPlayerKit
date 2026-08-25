@@ -8,6 +8,8 @@ enum DynamicTextureLimits {
     static let maximumBytesPerTexture = 64 * 1_024 * 1_024
     /// 单次 session 全部动态纹理上限 128 MiB。
     static let maximumBytesPerSession = 128 * 1_024 * 1_024
+    /// 跑马灯长条等动态纹理的边长上限。取 Apple GPU Family 2 的 2D 纹理宽高保守值。
+    static let maximumTextureDimension = 8_192
 
     /// 由 `CGSize` 计算字节数。非法或溢出返回 nil。
     static func byteCount(for size: CGSize) -> Int? {

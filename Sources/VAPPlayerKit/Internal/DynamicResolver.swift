@@ -7,6 +7,8 @@ enum ResolvedDynamicContent: @unchecked Sendable {
     case image(UIImage)
     /// 可动画图片：保留 provider 以便 session 期间驱动帧，同时缓存第一帧。
     case animated(AnimatedDynamicSlot)
+    /// 溢出文字的跑马灯长条。session 期间滑动 UV 窗口。
+    case marquee(MarqueeDynamicSlot)
     /// 本槽位本轮不渲染。
     case hidden
 }
@@ -34,7 +36,8 @@ final class DynamicResolver {
     func resolve(
         sources: [VapcSource],
         timeout: TimeInterval = 8,
-        imagePlayback: DynamicImagePlaybackMode = .animated
+        imagePlayback: DynamicImagePlaybackMode = .animated,
+        textOverflow: DynamicTextOverflowMode = .truncate
     ) async throws -> DynamicSnapshot {
         generation &+= 1
         let currentGeneration = generation
@@ -64,7 +67,8 @@ final class DynamicResolver {
                         source,
                         timeout: timeout,
                         generation: currentGeneration,
-                        imagePlayback: imagePlayback
+                        imagePlayback: imagePlayback,
+                        textOverflow: textOverflow
                     )
                     return (source.id, content)
                 }
@@ -92,7 +96,8 @@ final class DynamicResolver {
         _ source: VapcSource,
         timeout: TimeInterval,
         generation: UInt64,
-        imagePlayback: DynamicImagePlaybackMode
+        imagePlayback: DynamicImagePlaybackMode,
+        textOverflow: DynamicTextOverflowMode
     ) async throws -> ResolvedDynamicContent {
         let metadata = SourceMetadata(
             tag: source.tag,
@@ -119,7 +124,8 @@ final class DynamicResolver {
                                 let resolved = await self.materialize(
                                     content ?? .hidden,
                                     source: source,
-                                    imagePlayback: imagePlayback
+                                    imagePlayback: imagePlayback,
+                                    textOverflow: textOverflow
                                 )
                                 guard self.generation == generation else {
                                     gate.finish(.failure(PlaybackError.cancelled))
@@ -142,7 +148,8 @@ final class DynamicResolver {
                                 let resolved = await self.materialize(
                                     .textReplacement(replacementText),
                                     source: source,
-                                    imagePlayback: imagePlayback
+                                    imagePlayback: imagePlayback,
+                                    textOverflow: textOverflow
                                 )
                                 guard self.generation == generation else {
                                     gate.finish(.failure(PlaybackError.cancelled))
@@ -153,7 +160,8 @@ final class DynamicResolver {
                                 let resolved = await self.materialize(
                                     .image(image),
                                     source: source,
-                                    imagePlayback: imagePlayback
+                                    imagePlayback: imagePlayback,
+                                    textOverflow: textOverflow
                                 )
                                 guard self.generation == generation else {
                                     gate.finish(.failure(PlaybackError.cancelled))
@@ -180,7 +188,8 @@ final class DynamicResolver {
     private func materialize(
         _ content: DynamicContent,
         source: VapcSource,
-        imagePlayback: DynamicImagePlaybackMode
+        imagePlayback: DynamicImagePlaybackMode,
+        textOverflow: DynamicTextOverflowMode
     ) async -> ResolvedDynamicContent {
         // 所有分支都走 UIKit 绘制。串行化到本 @MainActor，避免真机上图片和 TextKit 并发渲染死锁。
         switch content {
@@ -189,9 +198,14 @@ final class DynamicResolver {
         case .image(let image):
             return Self.resolveImage(image, source: source, imagePlayback: imagePlayback)
         case .text(let text, let attributes):
-            return .image(Self.rasterizedText(text, attributes: attributes, source: source))
+            return Self.resolveText(text, attributes: attributes, source: source, overflow: textOverflow)
         case .textReplacement(let text):
-            return .image(Self.rasterizedReplacementText(text, source: source, font: self.font(for: source)))
+            return Self.resolveText(
+                text,
+                attributes: Self.replacementTextAttributes(text, source: source, font: self.font(for: source)),
+                source: source,
+                overflow: textOverflow
+            )
         }
     }
 
@@ -222,18 +236,75 @@ final class DynamicResolver {
         return objcProvider?.fontForTag?(source.tag)
     }
 
-    /// 把 `.textReplacement` 绘制到槽位尺寸的预乘纹理，过宽时尾部截断。
-    private static func rasterizedReplacementText(
+    /// 把 `.textReplacement` / `.text` 画成槽位纹理。放得下则居中；溢出则按 truncate / marquee。
+    static func resolveText(
         _ text: String,
+        attributes: TextAttributes,
         source: VapcSource,
-        font: UIFont?
-    ) -> UIImage {
-        let attributes = replacementTextAttributes(text, source: source, font: font)
-        return rasterizedText(
-            text,
-            attributes: attributes,
-            source: source,
-            lineBreakMode: .byTruncatingTail
+        overflow: DynamicTextOverflowMode
+    ) -> ResolvedDynamicContent {
+        let measured = singleLineSize(text, attributes: attributes)
+        if measured.width <= source.slotSize.width {
+            return .image(rasterizedText(text, attributes: attributes, source: source))
+        }
+        if overflow == .marquee, let slot = rasterizedMarqueeSlot(text, attributes: attributes, source: source) {
+            return .marquee(slot)
+        }
+        return .image(
+            rasterizedText(
+                text,
+                attributes: attributes,
+                source: source,
+                lineBreakMode: .byTruncatingTail
+            )
+        )
+    }
+
+    /// 单行测量，与 `draw(at:)` 使用同一套属性，避免 boundingRect 换行。
+    private static func singleLineSize(_ text: String, attributes: TextAttributes) -> CGSize {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .left
+        paragraph.lineBreakMode = .byClipping
+        return (text as NSString).size(withAttributes: [
+            .font: attributes.font,
+            .foregroundColor: attributes.color,
+            .paragraphStyle: paragraph
+        ])
+    }
+
+    /// 预绘 `[文字][间隙][文字]` 长条。超出纹理预算时返回 nil，调用方回退截断。
+    private static func rasterizedMarqueeSlot(
+        _ text: String,
+        attributes: TextAttributes,
+        source: VapcSource
+    ) -> MarqueeDynamicSlot? {
+        let measured = singleLineSize(text, attributes: attributes)
+        let textWidth = max(1, ceil(measured.width))
+        let gap = ceil(MarqueeLayout.gap(slotWidth: source.slotSize.width))
+        let slotHeight = max(1, source.slotSize.height.rounded())
+        let stripSize = MarqueeLayout.stripSize(textWidth: textWidth, gap: gap, slotHeight: slotHeight)
+        guard MarqueeLayout.canAllocateStrip(size: stripSize) else { return nil }
+        let slotWidth = CGFloat(max(1, Int(source.slotSize.width.rounded())))
+        let image = renderPremultipliedImage(size: stripSize) {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .left
+            paragraph.lineBreakMode = .byClipping
+            let drawingAttributes: [NSAttributedString.Key: Any] = [
+                .font: attributes.font,
+                .foregroundColor: attributes.color,
+                .paragraphStyle: paragraph
+            ]
+            let attributed = NSAttributedString(string: text, attributes: drawingAttributes)
+            let y = max(0, (slotHeight - measured.height) / 2)
+            attributed.draw(at: CGPoint(x: 0, y: y))
+            attributed.draw(at: CGPoint(x: textWidth + gap, y: y))
+        }
+        guard image.size.width > 0, image.size.height > 0 else { return nil }
+        return MarqueeDynamicSlot(
+            strip: image,
+            slotWidth: slotWidth,
+            cycleWidth: textWidth + gap,
+            textureWidth: image.size.width
         )
     }
 
@@ -256,7 +327,7 @@ final class DynamicResolver {
     }
 
     /// vapc 只有槽位尺寸、颜色和粗粒度样式，没有字体文件或精确字号。
-    /// 系统字体最多缩小三次，仍放不下时交给 UIKit 尾部截断。
+    /// 系统字体最多缩小三次，仍放不下时按 `dynamicTextOverflowMode` 截断或跑马灯。
     private static func fittedFontSize(text: String, source: VapcSource, bold: Bool) -> CGFloat {
         guard !text.isEmpty else { return 1 }
         var candidate = min(max(source.slotSize.height, 1), 50)

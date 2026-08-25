@@ -9,7 +9,7 @@
 }
 
 + (NSString *)replacementText {
-    return @"ObjC VAP Test";
+    return @"ObjC VAP Test · 超长昵称用于验证文字跑马灯";
 }
 
 + (void)resolveSource:(VPKSourceMetadata *)source

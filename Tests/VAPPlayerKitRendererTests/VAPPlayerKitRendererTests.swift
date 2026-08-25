@@ -65,6 +65,35 @@ final class VAPPlayerKitRendererTests: XCTestCase {
         renderer.dispose()
     }
 
+    @MainActor
+    func testMetalRendererUploadsMarqueeStrip() async throws {
+        guard MTLCreateSystemDefaultDevice() != nil else { return }
+        let renderer = MetalRenderer()
+        let layer = CAMetalLayer()
+        try await renderer.prepare(layer: layer)
+        let source = VapcSource(
+            id: "nickname",
+            kind: .text,
+            tag: "nickname",
+            slotSize: CGSize(width: 40, height: 60),
+            loadType: "local",
+            fitType: "fitXY",
+            color: "#FFFFFF",
+            style: nil
+        )
+        let resolved = DynamicResolver.resolveText(
+            "THIS replacement is too long",
+            attributes: TextAttributes(font: UIFont.monospacedSystemFont(ofSize: 20, weight: .regular), color: .white),
+            source: source,
+            overflow: .marquee
+        )
+        guard case .marquee(let slot) = resolved else {
+            return XCTFail("Overflowing text should produce a marquee strip")
+        }
+        try await renderer.prepareDynamic(DynamicSnapshot(contents: ["nickname": .marquee(slot)]))
+        renderer.dispose()
+    }
+
     func testDynamicTextureUploadMatchesMetalKitTopLeftOrigin() throws {
         guard let device = MTLCreateSystemDefaultDevice() else { return }
         let format = UIGraphicsImageRendererFormat()

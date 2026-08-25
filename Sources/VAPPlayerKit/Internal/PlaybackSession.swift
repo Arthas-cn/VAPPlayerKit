@@ -62,6 +62,8 @@ final class PlaybackSession {
     private var dynamicSnapshot = DynamicSnapshot.empty
     /// SDWebImage 动图槽位驱动器。无动图时为空操作。
     private let animatedPlayback = AnimatedDynamicPlayback()
+    /// 文字跑马灯 UV 驱动器。无溢出文字时为空操作。时钟与视频 loop 无关。
+    private let marqueePlayback = MarqueeDynamicPlayback()
     /// 当前循环的 decoder 是否已产出完毕。
     private var sourceEnded = false
     /// 已完成的循环次数，用于对照 `loopCount`。
@@ -187,7 +189,8 @@ final class PlaybackSession {
             do {
                 dynamicSnapshot = try await dynamicResolver.resolve(
                     sources: inspection.vapc.sources,
-                    imagePlayback: options.dynamicImagePlaybackMode
+                    imagePlayback: options.dynamicImagePlaybackMode,
+                    textOverflow: options.dynamicTextOverflowMode
                 )
                 metricsSink?.record(.dynamicResolveDuration(CACurrentMediaTime() - dynamicStartedAt))
             } catch {
@@ -200,6 +203,12 @@ final class PlaybackSession {
             try await renderer.prepareDynamic(dynamicSnapshot)
             try ensureActive()
             animatedPlayback.prepare(snapshot: dynamicSnapshot, renderer: renderer)
+            marqueePlayback.prepare(
+                snapshot: dynamicSnapshot,
+                renderer: renderer,
+                speed: options.marqueeSpeed,
+                startDelay: options.marqueeStartDelay
+            )
             try ensureActive()
             try await audioCoordinator.prepare(
                 url: url,
@@ -239,6 +248,7 @@ final class PlaybackSession {
         playStartedAt = CACurrentMediaTime()
         clock.reset()
         animatedPlayback.start()
+        marqueePlayback.resetClock()
         startSource()
     }
 
@@ -256,6 +266,7 @@ final class PlaybackSession {
         if timelineStarted { clock.pause() }
         audioCoordinator.pause()
         animatedPlayback.pause()
+        marqueePlayback.pause()
     }
 
     /// 从 pause / suspend 恢复。若时钟尚未启动，等到首帧入缓冲后再开播。
@@ -290,6 +301,9 @@ final class PlaybackSession {
             startTimelineIfReady()
         }
         animatedPlayback.start()
+        if timelineStarted {
+            marqueePlayback.start()
+        }
     }
 
     /// 离屏、零尺寸或进后台时挂起。与 pause 相同冻结时钟，但状态记为 suspended。
@@ -306,6 +320,7 @@ final class PlaybackSession {
         if timelineStarted { clock.pause() }
         audioCoordinator.pause()
         animatedPlayback.pause()
+        marqueePlayback.pause()
         renderGeneration &+= 1
         renderPending = false
         pendingFrame = nil
@@ -398,6 +413,7 @@ final class PlaybackSession {
         timelineStarted = true
         clock.resume()
         audioCoordinator.start()
+        marqueePlayback.start()
         startPacer()
         if !startDelivered {
             startDelivered = true
@@ -431,6 +447,7 @@ final class PlaybackSession {
             }
             renderPending = true
             let currentRenderGeneration = renderGeneration
+            marqueePlayback.apply()
             renderer.render(frame, vapc: inspection.vapc) { [weak self, token] result in
                 Task { @MainActor in
                     guard
@@ -444,6 +461,7 @@ final class PlaybackSession {
                     case .success(true):
                         self.pendingFrame = nil
                         self.metricsSink?.record(.renderedFrame)
+                        self.marqueePlayback.notePresented(frame: frame, vapc: inspection.vapc)
                         if !self.firstFrameDelivered {
                             self.firstFrameDelivered = true
                             self.metricsSink?.record(.firstFrameDuration(CACurrentMediaTime() - self.playStartedAt))
@@ -507,6 +525,7 @@ final class PlaybackSession {
         frameSource.cancel()
         dynamicResolver.cancel()
         animatedPlayback.stop()
+        marqueePlayback.stop()
         audioCoordinator.stop()
         ringBuffer.removeAll()
         pendingFrame = nil

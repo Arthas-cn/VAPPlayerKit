@@ -30,6 +30,14 @@ typedef NS_ENUM(NSInteger, VPKDynamicImagePlaybackMode) {
     VPKDynamicImagePlaybackModeAnimated = 1
 };
 
+/// 动态文字溢出策略。对应 Swift `DynamicTextOverflowMode`。
+typedef NS_ENUM(NSInteger, VPKDynamicTextOverflowMode) {
+    /// 单行尾部截断为省略号。默认。
+    VPKDynamicTextOverflowModeTruncate = 0,
+    /// 单行从右向左跑马灯；能放下时仍静态居中。
+    VPKDynamicTextOverflowModeMarquee = 1
+};
+
 /// 一次播放配置。`loopCount` 是总次数：1 播一次，0 无限循环。不要按旧 `repeatCount` 直传。
 @interface VPKPlaybackOptions : NSObject <NSCopying>
 
@@ -45,6 +53,12 @@ typedef NS_ENUM(NSInteger, VPKDynamicImagePlaybackMode) {
 @property (nonatomic, assign) VPKBackgroundPolicy backgroundPolicy;
 /// 动态槽位图片播放策略。默认按内容播放动图。
 @property (nonatomic, assign) VPKDynamicImagePlaybackMode dynamicImagePlaybackMode;
+/// 动态文字溢出策略。默认尾部截断。
+@property (nonatomic, assign) VPKDynamicTextOverflowMode dynamicTextOverflowMode;
+/// 跑马灯速度，单位 pt/s。仅跑马灯模式生效。默认 80；非正值回退为 80。
+@property (nonatomic, assign) CGFloat marqueeSpeed;
+/// 跑马灯起步停顿，单位秒。每个滚动周期开头都会停顿。仅跑马灯模式生效。默认 0.6；负值钳制为 0。
+@property (nonatomic, assign) NSTimeInterval marqueeStartDelay;
 
 /// 宿主是否链接了 SDWebImage。组件不会把它编进自身。
 @property (nonatomic, class, readonly) BOOL canPlayAnimatedDynamicImages;

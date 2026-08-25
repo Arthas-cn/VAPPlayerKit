@@ -24,6 +24,7 @@ public enum DynamicContent: @unchecked Sendable {
     ///
     /// vapc 不携带字体文件或精确 point size，因此这里保持的是动效声明的样式与布局约束；
     /// 需要按 tag 指定字体时可在 provider 的 `font(forTag:)` 中返回字体。
+    /// 文字宽于槽位时按 `PlaybackOptions.dynamicTextOverflowMode` 截断或跑马灯。
     case textReplacement(String)
     /// 已经解码的图片，组件会按 slot 预缩放。
     /// 宿主若链接 SDWebImage 并传入 `SDAnimatedImage`（帧数 > 1），可按 `PlaybackOptions.dynamicImagePlaybackMode` 播放动图。
