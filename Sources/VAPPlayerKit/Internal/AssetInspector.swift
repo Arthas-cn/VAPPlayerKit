@@ -38,13 +38,8 @@ final class AssetInspector {
             throw PlaybackError.invalidMP4(reason: "File exceeds the 2 GiB inspection limit.")
         }
 
-        let data: Data
-        do {
-            data = try Data(contentsOf: url, options: [.mappedIfSafe])
-        } catch {
-            throw PlaybackError.invalidMP4(reason: "File cannot be read.")
-        }
-        let boxes = try MP4BoxReader().topLevelBoxes(in: data)
+        let boxReader = MP4BoxReader()
+        let boxes = try boxReader.topLevelBoxes(inFile: url, fileSize: UInt64(fileSize))
         guard boxes.contains(where: { $0.type == "ftyp" }) else {
             throw PlaybackError.invalidMP4(reason: "Missing ftyp box.")
         }
@@ -86,7 +81,11 @@ final class AssetInspector {
 
         let vapc: VapcDocument
         if let box = boxes.first(where: { $0.type == "vapc" }) {
-            vapc = try VapcReader().read(from: data.subdata(in: box.payloadRange))
+            guard box.payloadRange.count <= VapcReader.maximumJSONSize else {
+                throw PlaybackError.invalidVapc(reason: "JSON payload is empty or exceeds 8 MiB.")
+            }
+            let payload = try boxReader.readPayload(of: box, inFile: url)
+            vapc = try VapcReader().read(from: payload)
             guard approximatelyEqual(vapc.encodedVideoSize, encodedSize) else {
                 throw PlaybackError.invalidVapc(reason: "videoW/videoH do not match the video track.")
             }

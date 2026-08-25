@@ -50,7 +50,7 @@ struct VapcDocument {
 
 /// 读取 MP4 中的 vapc box。对照 `vap-master/tool` 的 JSON 描述和 iOS `QGVAPConfigModel`。
 final class VapcReader {
-    private let maximumJSONSize = 8 * 1_024 * 1_024
+    static let maximumJSONSize = 8 * 1_024 * 1_024
     private let maximumDimension: CGFloat = 16_384
     private let maximumSources = 256
     private let maximumFrames = 100_000
@@ -58,7 +58,7 @@ final class VapcReader {
 
     /// 解析 vapc box 的 JSON payload。所有数组、尺寸和 rect 在构造模型前完成上限校验。
     func read(from data: Data) throws -> VapcDocument {
-        guard !data.isEmpty, data.count <= maximumJSONSize else {
+        guard !data.isEmpty, data.count <= Self.maximumJSONSize else {
             throw invalid("JSON payload is empty or exceeds 8 MiB.")
         }
         let object: Any

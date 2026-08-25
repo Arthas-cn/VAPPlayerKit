@@ -74,6 +74,33 @@ final class VAPPlayerKitParserTests: XCTestCase {
         XCTAssertThrowsError(try MP4BoxReader().topLevelBoxes(in: data))
     }
 
+    func testMP4BoxReaderScansFileHeadersAndReadsOnlySelectedPayload() throws {
+        let prefix = Data([0, 0, 0, 8]) + Data("ftyp".utf8)
+        let payload = Data("{\"vapc\":true}".utf8)
+        let boxSize = UInt32(8 + payload.count)
+        var vapcHeader = Data([
+            UInt8((boxSize >> 24) & 0xff),
+            UInt8((boxSize >> 16) & 0xff),
+            UInt8((boxSize >> 8) & 0xff),
+            UInt8(boxSize & 0xff)
+        ])
+        vapcHeader.append(Data("vapc".utf8))
+
+        var fileData = prefix
+        fileData.append(vapcHeader)
+        fileData.append(payload)
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vapplayerkit-box-reader-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try fileData.write(to: url)
+
+        let reader = MP4BoxReader()
+        let boxes = try reader.topLevelBoxes(inFile: url, fileSize: UInt64(fileData.count))
+        XCTAssertEqual(boxes.map(\.type), ["ftyp", "vapc"])
+        XCTAssertEqual(try reader.readPayload(of: boxes[1], inFile: url), payload)
+    }
+
     func testVapcReaderRejectsDuplicateFrameIndices() throws {
         let root: [String: Any] = [
             "info": [
