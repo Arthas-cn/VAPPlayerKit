@@ -12,6 +12,8 @@ struct InspectionResult {
     let metadata: AssetMetadata
     /// 渲染所需的完整 vapc 文档，与 `metadata.playbackDocument` 是同一份布局。
     let vapc: VapcDocument
+    /// inspection 已加载的 AVFoundation 媒体上下文，供解码器准备阶段复用。
+    let frameSourceContext: FrameSourceContext?
 }
 
 /// 将本地文件转换为不可变 `AssetMetadata`。只在后台运行，结果不得夹带 parser cursor 或文件句柄。
@@ -126,7 +128,18 @@ final class AssetInspector {
         metadata.sourceFileSize = Int64(fileSize)
         metadata.sourceModificationDate = resourceValues.contentModificationDate
         metadata.sourceFileIdentifier = resourceValues.fileResourceIdentifier as? Data
-        return InspectionResult(metadata: metadata, vapc: vapc)
+        let frameSourceMetadata = FrameSourceMetadata(encodedVideoSize: encodedSize, codec: codec)
+        let frameSourceContext = FrameSourceContext(
+            asset: asset,
+            videoTrack: videoTrack,
+            metadata: frameSourceMetadata
+        )
+        metadata.frameSourceContext = frameSourceContext
+        return InspectionResult(
+            metadata: metadata,
+            vapc: vapc,
+            frameSourceContext: frameSourceContext
+        )
     }
 
     /// 把 FourCC 转成 `h264` / `hevc`。其他 codec 直接失败。

@@ -13,10 +13,10 @@ struct MetalContextResources: @unchecked Sendable {
     let library: MTLLibrary
     /// packed 视频底图。
     let pipeline: MTLRenderPipelineState
-    /// 动态 overlay 正向混合。
-    let attachmentPipeline: MTLRenderPipelineState
-    /// 图片槽位打孔（抠近黑 locator）。
-    let attachmentPunchPipeline: MTLRenderPipelineState
+    /// 动态 overlay 正向混合；只有素材包含动态 source 时才延迟创建。
+    let attachmentPipeline: MTLRenderPipelineState?
+    /// 图片槽位打孔（抠近黑 locator）；动态 source 存在时才延迟创建。
+    let attachmentPunchPipeline: MTLRenderPipelineState?
     /// NV12 plane 转 Metal 纹理的共享 cache。
     let textureCache: CVMetalTextureCache
     /// `shared` 策略下所有 renderer 共用的 command queue；`perRenderer` 时为 nil。
@@ -73,10 +73,7 @@ final class MetalContext: @unchecked Sendable {
         let library = try ShaderLibrary.make(device: device)
         guard
             let vertex = library.makeFunction(name: "vpk_vertex"),
-            let fragment = library.makeFunction(name: "vpk_fragment"),
-            let attachmentVertex = library.makeFunction(name: "vpk_attachment_vertex"),
-            let attachmentFragment = library.makeFunction(name: "vpk_attachment_fragment"),
-            let attachmentPunchFragment = library.makeFunction(name: "vpk_attachment_punch_fragment")
+            let fragment = library.makeFunction(name: "vpk_fragment")
         else {
             throw PlaybackError.metalUnavailable
         }
@@ -86,18 +83,6 @@ final class MetalContext: @unchecked Sendable {
             vertex: vertex,
             fragment: fragment,
             blending: .premultipliedOver
-        )
-        let attachmentPipeline = try Self.makePipeline(
-            device: device,
-            vertex: attachmentVertex,
-            fragment: attachmentFragment,
-            blending: .premultipliedOver
-        )
-        let attachmentPunchPipeline = try Self.makePipeline(
-            device: device,
-            vertex: attachmentVertex,
-            fragment: attachmentPunchFragment,
-            blending: .destinationTimesOneMinusSourceAlpha
         )
         var textureCache: CVMetalTextureCache?
         guard CVMetalTextureCacheCreate(nil, nil, device, nil, &textureCache) == kCVReturnSuccess,
@@ -121,14 +106,56 @@ final class MetalContext: @unchecked Sendable {
             device: device,
             library: library,
             pipeline: pipeline,
-            attachmentPipeline: attachmentPipeline,
-            attachmentPunchPipeline: attachmentPunchPipeline,
+            attachmentPipeline: nil,
+            attachmentPunchPipeline: nil,
             textureCache: textureCache,
             sharedCommandQueue: sharedCommandQueue
         )
         self.resources = resources
         resourceBuildCount += 1
         return resources
+    }
+
+    /// 按需创建动态 overlay pipeline。视频-only 素材不会为未使用的 shader 编译状态付费。
+    func prepareAttachmentPipelines(device: MTLDevice) throws -> (overlay: MTLRenderPipelineState, punch: MTLRenderPipelineState) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let resources = self.resources, resources.device === device else {
+            throw PlaybackError.metalUnavailable
+        }
+        if let attachmentPipeline = resources.attachmentPipeline,
+           let attachmentPunchPipeline = resources.attachmentPunchPipeline {
+            return (attachmentPipeline, attachmentPunchPipeline)
+        }
+        guard
+            let attachmentVertex = resources.library.makeFunction(name: "vpk_attachment_vertex"),
+            let attachmentFragment = resources.library.makeFunction(name: "vpk_attachment_fragment"),
+            let attachmentPunchFragment = resources.library.makeFunction(name: "vpk_attachment_punch_fragment")
+        else {
+            throw PlaybackError.metalUnavailable
+        }
+        let attachmentPipeline = try Self.makePipeline(
+            device: device,
+            vertex: attachmentVertex,
+            fragment: attachmentFragment,
+            blending: .premultipliedOver
+        )
+        let attachmentPunchPipeline = try Self.makePipeline(
+            device: device,
+            vertex: attachmentVertex,
+            fragment: attachmentPunchFragment,
+            blending: .destinationTimesOneMinusSourceAlpha
+        )
+        self.resources = MetalContextResources(
+            device: resources.device,
+            library: resources.library,
+            pipeline: resources.pipeline,
+            attachmentPipeline: attachmentPipeline,
+            attachmentPunchPipeline: attachmentPunchPipeline,
+            textureCache: resources.textureCache,
+            sharedCommandQueue: resources.sharedCommandQueue
+        )
+        return (attachmentPipeline, attachmentPunchPipeline)
     }
 
     /// shared 策略返回缓存 queue；perRenderer 策略为调用方新建一条。

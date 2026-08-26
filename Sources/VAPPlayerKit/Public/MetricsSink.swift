@@ -4,7 +4,9 @@ import Foundation
 public enum MetricsEvent: Sendable {
     /// prepare 从开始到 metadata ready 的耗时。
     case prepareDuration(TimeInterval)
-    /// 从 play 到第一帧上屏的耗时。
+    /// prepare 内部阶段耗时，供诊断和基准分析使用。
+    case prepareStageDuration(String, TimeInterval)
+    /// 从 play 到第一帧 GPU command buffer 提交的耗时；GPU 完成后的宿主回调另行触发。
     case firstFrameDuration(TimeInterval)
     /// 成功产出一帧 decoded frame。
     case decodedFrame

@@ -10,7 +10,7 @@ import Foundation
 /// 设计约束：
 /// - 只缓存本组件解析出的可复用对象；宿主手工构造的摘要 metadata 不会入缓存。
 /// - 只接受本地 `file://` URL；网络资源由宿主自行下载后再交给播放器。
-/// - 只存在于当前进程内存，不写磁盘，也不缓存解码器、像素缓冲或 GPU 资源。
+/// - 只存在于当前进程内存，不写磁盘，也不缓存解码器、sample buffer 或 GPU 资源；仅保留 AVFoundation 元数据上下文。
 /// - 命中后仍会校验文件 identity、大小和修改时间；签名变化会丢弃旧值并重新解析。
 /// - 所有 `PlayerView` 共享同一个实例；公开 API 线程安全。
 @objc(VPKAssetMetadataCache)
@@ -260,7 +260,11 @@ public final class AssetMetadataCache: NSObject {
             )
         }
         try validateReusableFileSignature(metadata, for: url)
-        return InspectionResult(metadata: metadata, vapc: document)
+        return InspectionResult(
+            metadata: metadata,
+            vapc: document,
+            frameSourceContext: metadata.frameSourceContext
+        )
     }
 
     /// 校验缓存 / 复用 metadata 是否仍对应磁盘上的同一份本地文件。

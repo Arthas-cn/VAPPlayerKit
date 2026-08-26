@@ -115,8 +115,8 @@ final class MetalRenderer: @unchecked Sendable {
                     self.commandQueue = try self.context.makeCommandQueue(for: resources)
                     self.library = resources.library
                     self.pipeline = resources.pipeline
-                    self.attachmentPipeline = resources.attachmentPipeline
-                    self.attachmentPunchPipeline = resources.attachmentPunchPipeline
+                    self.attachmentPipeline = nil
+                    self.attachmentPunchPipeline = nil
                     self.disposed = false
                     continuation.resume(returning: ())
                 } catch let error as PlaybackError {
@@ -137,6 +137,18 @@ final class MetalRenderer: @unchecked Sendable {
                     return
                 }
                 do {
+                    let needsAttachments = snapshot.contents.contains { content in
+                        if case .hidden = content.value { return false }
+                        return true
+                    }
+                    if needsAttachments {
+                        let pipelines = try self.context.prepareAttachmentPipelines(device: device)
+                        self.attachmentPipeline = pipelines.overlay
+                        self.attachmentPunchPipeline = pipelines.punch
+                    } else {
+                        self.attachmentPipeline = nil
+                        self.attachmentPunchPipeline = nil
+                    }
                     var textures: [String: MTLTexture] = [:]
                     var uvs: [String: SourceUV] = [:]
                     var totalBytes = 0
@@ -265,6 +277,7 @@ final class MetalRenderer: @unchecked Sendable {
     func render(
         _ frame: DecodedFrame,
         vapc: VapcDocument,
+        didSubmit: @escaping (CFTimeInterval) -> Void,
         completion: @escaping (Result<Bool, PlaybackError>) -> Void
     ) {
         renderQueue.async { [weak self] in
@@ -273,7 +286,7 @@ final class MetalRenderer: @unchecked Sendable {
                 return
             }
             do {
-                let submitted = try self.encode(frame, vapc: vapc) { result in
+                let submitted = try self.encode(frame, vapc: vapc, didSubmit: didSubmit) { result in
                     completion(result)
                 }
                 if !submitted { completion(.success(false)) }
@@ -290,6 +303,7 @@ final class MetalRenderer: @unchecked Sendable {
     private func encode(
         _ frame: DecodedFrame,
         vapc: VapcDocument,
+        didSubmit: @escaping (CFTimeInterval) -> Void,
         completion: @escaping (Result<Bool, PlaybackError>) -> Void
     ) throws -> Bool {
         guard
@@ -300,8 +314,6 @@ final class MetalRenderer: @unchecked Sendable {
         guard
             let commandQueue,
             let pipeline,
-            let attachmentPipeline,
-            let attachmentPunchPipeline,
             let drawable = layer.nextDrawable()
         else { return false }
         let pixelBuffer = frame.pixelBuffer
@@ -349,6 +361,7 @@ final class MetalRenderer: @unchecked Sendable {
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         for attachment in vapc.frames[frame.index] ?? [] {
             guard let texture = dynamicTextures[attachment.sourceID] else { continue }
+            guard let attachmentPipeline else { throw PlaybackError.metalUnavailable }
             let uv = sourceUVs[attachment.sourceID] ?? .identity
             var attachmentUniforms = AttachmentUniforms(
                 renderRect: normalized(attachment.renderRect, within: vapc.canvasSize),
@@ -375,6 +388,7 @@ final class MetalRenderer: @unchecked Sendable {
             // 图片槽位把彩色动画 (A) 压在近黑 locator (B) 上。
             // 先打孔只抠掉 B，再叠加 C，让礼物透明像素透出 A；文字槽位不打孔。
             if attachment.kind == .image {
+                guard let attachmentPunchPipeline else { throw PlaybackError.metalUnavailable }
                 encoder.setRenderPipelineState(attachmentPunchPipeline)
                 encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
             }
@@ -402,6 +416,9 @@ final class MetalRenderer: @unchecked Sendable {
             inFlight.leave()
         }
         commandBuffer.commit()
+        // Count a rendered frame at the same boundary as the legacy renderer:
+        // after the command buffer is submitted, before GPU completion.
+        didSubmit(CACurrentMediaTime())
         return true
     }
 
