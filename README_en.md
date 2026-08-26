@@ -310,6 +310,8 @@ xcodebuild \
 
 CI runs the Swift package tests and builds both sample apps. Device, long-loop, and Instruments gates live in [`VAPPlayerKit_SPM_ARCHITECTURE.md`](VAPPlayerKit_SPM_ARCHITECTURE.md). Performance bounds and known limits: [`VAPPlayerKit_PERFORMANCE_EVALUATION.md`](VAPPlayerKit_PERFORMANCE_EVALUATION.md).
 
+On an iPhone 12, compared with the local `vap-master` implementation, the core path from prepare to the first GPU submission is about 30% faster on average across four key metrics. Cold-start performance improves by about 17%, warm-start performance by about 43%, and warm preparation by about 66–76%. Both regular assets and image/text replacement assets show gains.
+
 With a signed device attached, run `SwiftExampleUITests`:
 
 ```sh

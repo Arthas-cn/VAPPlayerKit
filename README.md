@@ -310,6 +310,8 @@ xcodebuild \
 
 CI 会跑 Swift Package 测试，并编译 Swift / Objective-C 示例。发布前的真机、长循环和 Instruments 清单见 [`VAPPlayerKit_SPM_ARCHITECTURE.md`](VAPPlayerKit_SPM_ARCHITECTURE.md)；性能边界与已知限制见 [`VAPPlayerKit_PERFORMANCE_EVALUATION.md`](VAPPlayerKit_PERFORMANCE_EVALUATION.md)。
 
+在 iPhone 12 真机对比本地 `vap-master`：按四项核心指标综合计算，从准备播放到首帧进入 GPU 的核心链路平均耗时降低约 30%；冷启动提升约 17%，热启动提升约 43%，其中热启动准备阶段提升约 66%～76%。普通素材和图文替换素材均有提升。
+
 连接已签名真机后可跑 `SwiftExampleUITests`：
 
 ```sh
