@@ -27,6 +27,19 @@ final class AVAssetReaderFrameSource: FrameSource {
 
     /// 加载视频轨并记录编码尺寸 / codec，此时还不创建 AVAssetReader。
     func prepare() async throws -> FrameSourceMetadata {
+        try await prepare(using: nil)
+    }
+
+    /// 优先复用 inspector 已加载的 AVAsset / video track，避免 warm prepare 重复查询 AVFoundation 元数据。
+    func prepare(using context: FrameSourceContext?) async throws -> FrameSourceMetadata {
+        if let context {
+            state.withLock {
+                self.asset = context.asset
+                self.videoTrack = context.videoTrack
+            }
+            return context.metadata
+        }
+
         let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         let tracks: [AVAssetTrack]
         do {
@@ -53,11 +66,12 @@ final class AVAssetReaderFrameSource: FrameSource {
         guard size.width > 0, size.height > 0 else {
             throw PlaybackError.invalidMP4(reason: "Video track has invalid encoded dimensions.")
         }
+        let metadata = FrameSourceMetadata(encodedVideoSize: size, codec: codec)
         state.withLock {
             self.asset = asset
             self.videoTrack = track
         }
-        return FrameSourceMetadata(encodedVideoSize: size, codec: codec)
+        return metadata
     }
 
     /// 在 decoder queue 上循环 copyNextSampleBuffer，满缓冲时阻塞等待。

@@ -24,6 +24,25 @@ enum SessionState: Equatable {
     case failed
 }
 
+private final class FirstSubmissionGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+
+    func reset() {
+        lock.lock()
+        claimed = false
+        lock.unlock()
+    }
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !claimed else { return false }
+        claimed = true
+        return true
+    }
+}
+
 /// 一次 play 对应一个全新 session。所有低层对象、异步回调和终态都由 token 隔离。
 @MainActor
 final class PlaybackSession {
@@ -94,6 +113,8 @@ final class PlaybackSession {
     private var prepareStartedAt: CFTimeInterval = 0
     /// play 开始时间，用于首帧耗时埋点。
     private var playStartedAt: CFTimeInterval = 0
+    /// Thread-safe one-shot gate for metrics emitted at command submission.
+    private let firstSubmissionGate = FirstSubmissionGate()
 
     /// 可选埋点。decoder 回调可能在后台线程记录。
     weak var metricsSink: MetricsSink?
@@ -161,6 +182,7 @@ final class PlaybackSession {
         state = .preparing
         prepareStartedAt = CACurrentMediaTime()
         do {
+            let inspectionStartedAt = CACurrentMediaTime()
             let inspection: InspectionResult
             let reusedMetadata: AssetMetadata?
             if let suppliedMetadata {
@@ -172,8 +194,11 @@ final class PlaybackSession {
                 inspection = resolution.inspection
                 reusedMetadata = resolution.reusedMetadata
             }
+            metricsSink?.record(.prepareStageDuration("inspection", CACurrentMediaTime() - inspectionStartedAt))
             try ensureActive()
-            let sourceMetadata = try await frameSource.prepare()
+            let frameSourceStartedAt = CACurrentMediaTime()
+            let sourceMetadata = try await frameSource.prepare(using: inspection.frameSourceContext)
+            metricsSink?.record(.prepareStageDuration("frame_source", CACurrentMediaTime() - frameSourceStartedAt))
             try ensureActive()
             // 解码轨打开后立刻再验一次签名，挡住 inspection 到 decoder prepare 之间的文件替换。
             if let reusedMetadata {
@@ -183,7 +208,9 @@ final class PlaybackSession {
                   sourceMetadata.codec == inspection.metadata.codec else {
                 throw PlaybackError.invalidMP4(reason: "Inspector and decoder track descriptions disagree.")
             }
+            let rendererStartedAt = CACurrentMediaTime()
             try await renderer.prepare(layer: metalLayer)
+            metricsSink?.record(.prepareStageDuration("renderer", CACurrentMediaTime() - rendererStartedAt))
             try ensureActive()
             let dynamicStartedAt = CACurrentMediaTime()
             do {
@@ -193,6 +220,7 @@ final class PlaybackSession {
                     textOverflow: options.dynamicTextOverflowMode
                 )
                 metricsSink?.record(.dynamicResolveDuration(CACurrentMediaTime() - dynamicStartedAt))
+                metricsSink?.record(.prepareStageDuration("dynamic_resolve", CACurrentMediaTime() - dynamicStartedAt))
             } catch {
                 if (error as? PlaybackError)?.code == .dynamicContentTimeout {
                     metricsSink?.record(.dynamicTimeout)
@@ -200,7 +228,9 @@ final class PlaybackSession {
                 throw error
             }
             try ensureActive()
+            let dynamicUploadStartedAt = CACurrentMediaTime()
             try await renderer.prepareDynamic(dynamicSnapshot)
+            metricsSink?.record(.prepareStageDuration("dynamic_upload", CACurrentMediaTime() - dynamicUploadStartedAt))
             try ensureActive()
             animatedPlayback.prepare(snapshot: dynamicSnapshot, renderer: renderer)
             marqueePlayback.prepare(
@@ -210,11 +240,13 @@ final class PlaybackSession {
                 startDelay: options.marqueeStartDelay
             )
             try ensureActive()
+            let audioStartedAt = CACurrentMediaTime()
             try await audioCoordinator.prepare(
                 url: url,
                 mode: options.audioMode,
                 containsAudio: inspection.metadata.containsAudio
             )
+            metricsSink?.record(.prepareStageDuration("audio", CACurrentMediaTime() - audioStartedAt))
             try ensureActive()
             // 动态内容和音频准备完成后再验一次，覆盖整个 prepare 窗口内的文件改写。
             if let reusedMetadata {
@@ -239,6 +271,7 @@ final class PlaybackSession {
         state = .playing
         completedLoops = 0
         firstFrameDelivered = false
+        firstSubmissionGate.reset()
         startDelivered = false
         timelineStarted = false
         audioReady = true
@@ -447,8 +480,16 @@ final class PlaybackSession {
             }
             renderPending = true
             let currentRenderGeneration = renderGeneration
+            let currentPlayStart = playStartedAt
+            let metricsSink = self.metricsSink
+            let firstSubmissionGate = self.firstSubmissionGate
             marqueePlayback.apply()
-            renderer.render(frame, vapc: inspection.vapc) { [weak self, token] result in
+            renderer.render(frame, vapc: inspection.vapc, didSubmit: { submittedAt in
+                metricsSink?.record(.renderedFrame)
+                if firstSubmissionGate.claim() {
+                    metricsSink?.record(.firstFrameDuration(submittedAt - currentPlayStart))
+                }
+            }) { [weak self, token] result in
                 Task { @MainActor in
                     guard
                         let self,
@@ -460,11 +501,9 @@ final class PlaybackSession {
                     switch result {
                     case .success(true):
                         self.pendingFrame = nil
-                        self.metricsSink?.record(.renderedFrame)
                         self.marqueePlayback.notePresented(frame: frame, vapc: inspection.vapc)
                         if !self.firstFrameDelivered {
                             self.firstFrameDelivered = true
-                            self.metricsSink?.record(.firstFrameDuration(CACurrentMediaTime() - self.playStartedAt))
                             self.onFirstFrame?()
                         }
                     case .success(false):

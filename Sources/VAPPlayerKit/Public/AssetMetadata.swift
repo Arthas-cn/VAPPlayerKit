@@ -50,6 +50,8 @@ public final class AssetMetadata: NSObject {
     /// `NSURLFileResourceIdentifierKey` 对应的稳定文件 identity。
     /// 路径被替换成另一个 inode 时即使大小和修改时间被刻意对齐，也能识别为过期。
     internal var sourceFileIdentifier: Data?
+    /// inspection 时加载的 AVFoundation 媒体上下文，供后续 FrameSource prepare 复用。
+    internal var frameSourceContext: FrameSourceContext?
 
     /// 由 `AssetInspector` 在后台解析完成后构造。宿主也可以在测试里直接创建。
     @objc public init(
