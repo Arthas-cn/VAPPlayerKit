@@ -19,6 +19,11 @@
 		22A0000000000000000000A1 /* GiftCatalog.m in Sources */ = {isa = PBXBuildFile; fileRef = 22A000000000000000000093 /* GiftCatalog.m */; };
 		22A0000000000000000000A2 /* PlaybackDetailViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 22A000000000000000000095 /* PlaybackDetailViewController.m */; };
 		22A0000000000000000000A3 /* BatchTestViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 22A000000000000000000097 /* BatchTestViewController.m */; };
+		22A0000000000000000000A4 /* VPKPerformanceBenchmarkViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 22A000000000000000000099 /* VPKPerformanceBenchmarkViewController.m */; };
+		22A0000000000000000000A5 /* VPKMetricsProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22A00000000000000000009A /* VPKMetricsProbe.swift */; };
+		22A0000000000000000000A6 /* demo.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = 22A00000000000000000009B /* demo.mp4 */; };
+		22A0000000000000000000A7 /* 1.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = 22A00000000000000000009C /* 1.mp4 */; };
+		22A0000000000000000000A8 /* qq.png in Resources */ = {isa = PBXBuildFile; fileRef = 22A00000000000000000009D /* qq.png */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -42,6 +47,12 @@
 		22A000000000000000000095 /* PlaybackDetailViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PlaybackDetailViewController.m; sourceTree = "<group>"; };
 		22A000000000000000000096 /* BatchTestViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BatchTestViewController.h; sourceTree = "<group>"; };
 		22A000000000000000000097 /* BatchTestViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BatchTestViewController.m; sourceTree = "<group>"; };
+		22A000000000000000000098 /* VPKPerformanceBenchmarkViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VPKPerformanceBenchmarkViewController.h; sourceTree = "<group>"; };
+		22A000000000000000000099 /* VPKPerformanceBenchmarkViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = VPKPerformanceBenchmarkViewController.m; sourceTree = "<group>"; };
+		22A00000000000000000009A /* VPKMetricsProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VPKMetricsProbe.swift; sourceTree = "<group>"; };
+		22A00000000000000000009B /* demo.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = Resource/demo.mp4; sourceTree = "<group>"; };
+		22A00000000000000000009C /* 1.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = Resource/1.mp4; sourceTree = "<group>"; };
+		22A00000000000000000009D /* qq.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resource/qq.png; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -91,6 +102,12 @@
 				22A000000000000000000095 /* PlaybackDetailViewController.m */,
 				22A000000000000000000096 /* BatchTestViewController.h */,
 				22A000000000000000000097 /* BatchTestViewController.m */,
+				22A000000000000000000098 /* VPKPerformanceBenchmarkViewController.h */,
+				22A000000000000000000099 /* VPKPerformanceBenchmarkViewController.m */,
+				22A00000000000000000009A /* VPKMetricsProbe.swift */,
+				22A00000000000000000009B /* demo.mp4 */,
+				22A00000000000000000009C /* 1.mp4 */,
+				22A00000000000000000009D /* qq.png */,
 				22A000000000000000000033 /* main.m */,
 				22A000000000000000000034 /* Assets.xcassets */,
 				22A000000000000000000035 /* Info.plist */,
@@ -164,6 +181,9 @@
 				22A000000000000000000044 /* Assets.xcassets in Resources */,
 				22A000000000000000000081 /* VAP in Resources */,
 				22A000000000000000000083 /* Gifts in Resources */,
+				22A0000000000000000000A6 /* demo.mp4 in Resources */,
+				22A0000000000000000000A7 /* 1.mp4 in Resources */,
+				22A0000000000000000000A8 /* qq.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -182,6 +202,8 @@
 				22A0000000000000000000A1 /* GiftCatalog.m in Sources */,
 				22A0000000000000000000A2 /* PlaybackDetailViewController.m in Sources */,
 				22A0000000000000000000A3 /* BatchTestViewController.m in Sources */,
+				22A0000000000000000000A4 /* VPKPerformanceBenchmarkViewController.m in Sources */,
+				22A0000000000000000000A5 /* VPKMetricsProbe.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

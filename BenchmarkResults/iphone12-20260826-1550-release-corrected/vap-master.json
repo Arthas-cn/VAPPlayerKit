@@ -1,0 +1,92 @@
+{
+  "schema" : 1,
+  "player" : "vap-master",
+  "asset_bytes" : 1519065,
+  "device" : "iPhone",
+  "system" : "26.5.2",
+  "runs" : [
+    {
+      "index" : 1,
+      "first_frame_index" : 0,
+      "valid" : 1,
+      "prepare_ms" : 36.072015762329102,
+      "error" : null,
+      "phase" : "cold",
+      "play_to_first_frame_ms" : 138.88204097747803,
+      "drawable_failures" : 0,
+      "dropped" : 0,
+      "decoder_rebuilds" : 0,
+      "first_frame_ms" : 138.88204097747803,
+      "rendered" : 48,
+      "decoded" : 53
+    },
+    {
+      "index" : 2,
+      "first_frame_index" : 0,
+      "valid" : 1,
+      "prepare_ms" : 7.8070163726806641,
+      "error" : null,
+      "phase" : "warm",
+      "play_to_first_frame_ms" : 51.32603645324707,
+      "drawable_failures" : 0,
+      "dropped" : 0,
+      "decoder_rebuilds" : 0,
+      "first_frame_ms" : 51.32603645324707,
+      "rendered" : 51,
+      "decoded" : 56
+    },
+    {
+      "index" : 3,
+      "first_frame_index" : 0,
+      "valid" : 1,
+      "prepare_ms" : 7.7900886535644531,
+      "error" : null,
+      "phase" : "warm",
+      "play_to_first_frame_ms" : 50.253033638000488,
+      "drawable_failures" : 0,
+      "dropped" : 0,
+      "decoder_rebuilds" : 0,
+      "first_frame_ms" : 50.253033638000488,
+      "rendered" : 51,
+      "decoded" : 56
+    },
+    {
+      "index" : 4,
+      "first_frame_index" : 0,
+      "valid" : 1,
+      "prepare_ms" : 7.8159570693969727,
+      "error" : null,
+      "phase" : "warm",
+      "play_to_first_frame_ms" : 51.682949066162109,
+      "drawable_failures" : 0,
+      "dropped" : 0,
+      "decoder_rebuilds" : 0,
+      "first_frame_ms" : 51.682949066162109,
+      "rendered" : 49,
+      "decoded" : 54
+    },
+    {
+      "index" : 5,
+      "first_frame_index" : 0,
+      "valid" : 1,
+      "prepare_ms" : 7.7899694442749023,
+      "error" : null,
+      "phase" : "warm",
+      "play_to_first_frame_ms" : 51.303982734680176,
+      "drawable_failures" : 0,
+      "dropped" : 0,
+      "decoder_rebuilds" : 0,
+      "first_frame_ms" : 51.303982734680176,
+      "rendered" : 49,
+      "decoded" : 54
+    }
+  ],
+  "summary" : {
+    "call_to_first_p50_ms" : 51.32603645324707,
+    "rendered_max" : 51,
+    "prepare_p50_ms" : 7.8070163726806641,
+    "rendered_min" : 48
+  },
+  "asset" : "demo.mp4",
+  "window_seconds" : 2
+}

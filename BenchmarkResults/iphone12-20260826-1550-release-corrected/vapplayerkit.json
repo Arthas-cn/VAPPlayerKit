@@ -1,0 +1,131 @@
+{
+  "schema" : 1,
+  "player" : "VAPPlayerKit",
+  "asset_bytes" : 1519065,
+  "device" : "iPhone",
+  "system" : "26.5.2",
+  "runs" : [
+    {
+      "index" : 1,
+      "dynamic_timeouts" : 0,
+      "valid" : 1,
+      "prepare_ms" : 37.923499941825867,
+      "error" : null,
+      "phase" : "cold",
+      "play_to_first_frame_ms" : 84.325041621923447,
+      "drawable_failures" : 0,
+      "dropped" : 0,
+      "decoder_rebuilds" : 0,
+      "first_frame_ms" : 46.40154168009758,
+      "rendered" : 51,
+      "session_finished" : 0,
+      "decoded" : 57,
+      "prepare_stages_ms" : {
+        "dynamic_upload" : 0.046291621401906013,
+        "audio" : 0.001250067725777626,
+        "frame_source" : 6.7828334867954254,
+        "renderer" : 7.0597082376480103,
+        "inspection" : 23.969624890014529,
+        "dynamic_resolve" : 0.0036666169762611389
+      }
+    },
+    {
+      "index" : 2,
+      "dynamic_timeouts" : 0,
+      "valid" : 1,
+      "prepare_ms" : 9.9749166984111071,
+      "error" : null,
+      "phase" : "warm",
+      "play_to_first_frame_ms" : 50.81062507815659,
+      "drawable_failures" : 0,
+      "dropped" : 0,
+      "decoder_rebuilds" : 0,
+      "first_frame_ms" : 40.835708379745483,
+      "rendered" : 52,
+      "session_finished" : 0,
+      "decoded" : 58,
+      "prepare_stages_ms" : {
+        "audio" : 0.0015418045222759247,
+        "inspection" : 1.5795000363141298,
+        "dynamic_upload" : 0.051791546866297722,
+        "frame_source" : 7.0481665898114443,
+        "renderer" : 0.12274994514882565,
+        "dynamic_resolve" : 0.0031667295843362808
+      }
+    },
+    {
+      "index" : 3,
+      "dynamic_timeouts" : 0,
+      "valid" : 1,
+      "prepare_ms" : 9.9092081654816866,
+      "error" : null,
+      "phase" : "warm",
+      "play_to_first_frame_ms" : 50.657083280384541,
+      "drawable_failures" : 0,
+      "dropped" : 0,
+      "decoder_rebuilds" : 0,
+      "first_frame_ms" : 40.747875114902854,
+      "rendered" : 52,
+      "session_finished" : 0,
+      "decoded" : 58,
+      "prepare_stages_ms" : {
+        "renderer" : 0.11324998922646046,
+        "inspection" : 1.568750012665987,
+        "dynamic_resolve" : 0.0030833762139081955,
+        "audio" : 0.0017916318029165268,
+        "frame_source" : 7.0418750401586294,
+        "dynamic_upload" : 0.053833238780498505
+      }
+    },
+    {
+      "index" : 4,
+      "dynamic_timeouts" : 0,
+      "valid" : 1,
+      "prepare_ms" : 9.8818333353847265,
+      "error" : null,
+      "phase" : "warm",
+      "play_to_first_frame_ms" : 50.716541707515717,
+      "drawable_failures" : 0,
+      "dropped" : 0,
+      "decoder_rebuilds" : 0,
+      "first_frame_ms" : 40.83470837213099,
+      "rendered" : 51,
+      "session_finished" : 0,
+      "decoded" : 58,
+      "prepare_stages_ms" : {
+        "dynamic_resolve" : 0.0028333161026239395,
+        "inspection" : 1.4882083050906658,
+        "audio" : 0.0015832483768463135,
+        "frame_source" : 7.0688333362340927,
+        "renderer" : 0.12316671200096607,
+        "dynamic_upload" : 0.055166659876704216
+      }
+    },
+    {
+      "index" : 5,
+      "dynamic_timeouts" : 0,
+      "valid" : 1,
+      "prepare_ms" : 9.8514999262988567,
+      "error" : null,
+      "phase" : "warm",
+      "play_to_first_frame_ms" : 53.353708237409592,
+      "drawable_failures" : 0,
+      "dropped" : 0,
+      "decoder_rebuilds" : 0,
+      "first_frame_ms" : 43.502208311110735,
+      "rendered" : 51,
+      "session_finished" : 0,
+      "decoded" : 58,
+      "prepare_stages_ms" : {
+        "renderer" : 0.15095830895006657,
+        "audio" : 0.0022500753402709961,
+        "inspection" : 1.5071665402501822,
+        "dynamic_upload" : 0.071166781708598137,
+        "dynamic_resolve" : 0.0034167896956205368,
+        "frame_source" : 6.9519167300313711
+      }
+    }
+  ],
+  "asset" : "demo.mp4",
+  "window_seconds" : 2
+}

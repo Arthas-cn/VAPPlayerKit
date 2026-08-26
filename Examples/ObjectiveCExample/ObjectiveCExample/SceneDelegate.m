@@ -1,5 +1,6 @@
 #import "SceneDelegate.h"
 #import "ViewController.h"
+#import "VPKPerformanceBenchmarkViewController.h"
 
 @implementation SceneDelegate
 
@@ -8,7 +9,13 @@
         return;
     }
     UIWindow *window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
-    UINavigationController *navigationController = [[UINavigationController alloc] initWithRootViewController:[[ViewController alloc] init]];
+    UIViewController *rootViewController;
+    if ([NSProcessInfo.processInfo.arguments containsObject:@"--vap-performance-benchmark"]) {
+        rootViewController = [[VPKPerformanceBenchmarkViewController alloc] init];
+    } else {
+        rootViewController = [[ViewController alloc] init];
+    }
+    UINavigationController *navigationController = [[UINavigationController alloc] initWithRootViewController:rootViewController];
     navigationController.navigationBar.prefersLargeTitles = YES;
     window.rootViewController = navigationController;
     [window makeKeyAndVisible];

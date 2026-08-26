@@ -32,6 +32,8 @@ final class PlaybackDiagnostics: MetricsSink {
         switch event {
         case .prepareDuration(let value):
             importantMessage = String(format: "prepare %.3fs", value)
+        case .prepareStageDuration(_, _):
+            break
         case .firstFrameDuration(let value):
             importantMessage = String(format: "first frame %.3fs", value)
         case .decodedFrame:
