@@ -416,16 +416,17 @@ public enum DynamicContent {
     case text(String, attributes: TextAttributes)
     case textReplacement(String)
     case image(UIImage)
-    case imageURL(URL)
     case hidden
 }
 ~~~
 
 `textReplacement` 服务于宿主只提供 tag/value 的常见场景：使用 vapc source 的颜色、粗体标记和 slot 约束，自动选择可放入槽位的系统字号。vapc 不包含字体文件或精确 point size，因此不能承诺恢复原字体族或精确字号；有严格排版要求时可使用 `text(_:attributes:)`，或由 provider 按 tag 返回字体。
 
+图片槽位只接受已解码的 `UIImage`。组件不提供 `imageURL`，也不发网络请求；宿主应先下载再返回 `.image`。
+
 宿主可在 `DynamicContentProvider.font(forTag:)` 中按 tag 提供字体。提供字体时组件保持该字体；未提供时自动字号最多缩小三次，仍无法放入槽位则使用 UIKit 的 `byTruncatingTail` 模式截断。
 
-该 case 扩展了 public enum，对 exhaustive switch 是源码破坏性变更；从已发布版本升级时必须按 SemVer major 交付并提供迁移说明，调用方需要处理 `.textReplacement` 或使用 `@unknown default`。
+`.textReplacement` 扩展了 public enum，`.imageURL` 已移除，二者对 exhaustive switch 都是源码破坏性变更；从已发布版本升级时必须按 SemVer major 交付并提供迁移说明，调用方需要处理 `.textReplacement`、去掉 `.imageURL`，或使用 `@unknown default`。
 
 没有 provider，或 provider 对某个 tag 返回 `nil` / `.hidden`，都固化为透明空槽位；动态内容缺省不得阻止视频准备或播放。provider 明确返回 error 或超过 timeout 仍按错误模型处理。
 

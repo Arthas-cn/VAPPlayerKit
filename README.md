@@ -198,8 +198,7 @@ func resolve(
 | --- | --- |
 | `.textReplacement(String)` | 只换文案。使用 vapc 声明的颜色、粗体和槽位尺寸，自动估算能放入槽位的系统字号 |
 | `.text(_:attributes:)` | 完全指定字体和颜色 |
-| `.image(UIImage)` | 已解码图片，组件按槽位预缩放 |
-| `.imageURL(URL)` | 只表达地址，**组件不会下载**；provider 应先下载再返回 `.image` |
+| `.image(UIImage)` | 已解码图片，组件按槽位预缩放。图片请先由宿主下载后再返回此 case |
 | `.hidden` | 本轮不渲染该槽位 |
 
 vapc 不含字体文件或精确 point size，因此 `.textReplacement` 无法还原原字体族和精确字号。需要按 tag 指定字体时，实现 `font(forTag:)` 返回 `UIFont`；返回 `nil` 则继续自动估算。
@@ -210,7 +209,7 @@ vapc 不含字体文件或精确 point size，因此 `.textReplacement` 无法�
 
 图片槽位始终传 `UIImage`。宿主若自行链接 [SDWebImage](https://github.com/SDWebImage/SDWebImage)，并传入 `SDAnimatedImage`（`animatedImageFrameCount > 1`），组件会按 `dynamicImagePlaybackMode` 播放动图；动画 WebP 还需注册 `SDWebImageWebPCoder`。可用 `PlaybackOptions.canPlayAnimatedDynamicImages` 查询运行时是否探测到 SDWebImage。动图循环跟随当前 VAP session，结束或停止时停掉。
 
-兼容性：`.textReplacement` 是 public enum 的新 case。已有调用方若对 `DynamicContent` 做 exhaustive `switch`，升级后必须补分支（或 `@unknown default`）。这是源码破坏性变更，应按 SemVer major 发布。
+兼容性：`.textReplacement` 是 public enum 的新 case；`.imageURL` 已移除（组件不下载 URL，请先下载再返回 `.image`）。已有调用方若对 `DynamicContent` 做 exhaustive `switch`，升级后必须补 `.textReplacement` 并去掉 `.imageURL`（或使用 `@unknown default`）。这是源码破坏性变更，应按 SemVer major 发布。
 
 ### Objective-C
 

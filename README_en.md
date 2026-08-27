@@ -198,8 +198,7 @@ Call `completion` exactly once.
 | --- | --- |
 | `.textReplacement(String)` | Replace copy only. Uses vapc color, bold flag, and slot size to estimate a system font that fits |
 | `.text(_:attributes:)` | Fully specified font and color |
-| `.image(UIImage)` | Already-decoded image; the kit pre-scales to the slot |
-| `.imageURL(URL)` | Address only — **the kit does not download**. Fetch first, then return `.image` |
+| `.image(UIImage)` | Already-decoded image; the kit pre-scales to the slot. The host must download first, then return this case |
 | `.hidden` | Skip this slot for the current session |
 
 vapc does not embed a font file or an exact point size, so `.textReplacement` cannot restore the original family or size. Implement `font(forTag:)` to supply a `UIFont`; return `nil` to keep auto-sizing.
@@ -210,7 +209,7 @@ If no provider is set, or a tag returns `nil` / `.hidden`, that slot is treated 
 
 Image slots always take `UIImage`. If the host links [SDWebImage](https://github.com/SDWebImage/SDWebImage) and passes `SDAnimatedImage` (`animatedImageFrameCount > 1`), the kit honors `dynamicImagePlaybackMode`. Animated WebP also needs `SDWebImageWebPCoder`. Check `PlaybackOptions.canPlayAnimatedDynamicImages` for runtime detection. Animated loops follow the VAP session and stop with it.
 
-Compatibility: `.textReplacement` is a new public enum case. Existing exhaustive `switch`es on `DynamicContent` must add a branch (or `@unknown default`). That is a source-breaking change and should ship as a SemVer major.
+Compatibility: `.textReplacement` is a new public enum case; `.imageURL` has been removed (the kit does not download URLs — fetch first, then return `.image`). Existing exhaustive `switch`es on `DynamicContent` must add `.textReplacement` and drop `.imageURL` (or use `@unknown default`). That is a source-breaking change and should ship as a SemVer major.
 
 ### Objective-C
 

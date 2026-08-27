@@ -184,7 +184,7 @@ final class DynamicResolver {
         }
     }
 
-    /// 把宿主返回的 `DynamicContent` 栅格化成可上传纹理。`imageURL` 视为 hidden，组件不下载。
+    /// 把宿主返回的 `DynamicContent` 栅格化成可上传纹理。
     private func materialize(
         _ content: DynamicContent,
         source: VapcSource,
@@ -193,7 +193,7 @@ final class DynamicResolver {
     ) async -> ResolvedDynamicContent {
         // 所有分支都走 UIKit 绘制。串行化到本 @MainActor，避免真机上图片和 TextKit 并发渲染死锁。
         switch content {
-        case .hidden, .imageURL:
+        case .hidden:
             return .hidden
         case .image(let image):
             return Self.resolveImage(image, source: source, imagePlayback: imagePlayback)

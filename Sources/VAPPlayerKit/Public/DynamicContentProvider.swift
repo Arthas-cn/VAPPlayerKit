@@ -29,8 +29,6 @@ public enum DynamicContent: @unchecked Sendable {
     /// 已经解码的图片，组件会按 slot 预缩放。
     /// 宿主若链接 SDWebImage 并传入 `SDAnimatedImage`（帧数 > 1），可按 `PlaybackOptions.dynamicImagePlaybackMode` 播放动图。
     case image(UIImage)
-    /// 仅表达「这是一个图片 URL」。下载仍由宿主完成；组件不会发网络请求。
-    case imageURL(URL)
     /// 该 tag 本轮不渲染。
     case hidden
 }
@@ -38,7 +36,7 @@ public enum DynamicContent: @unchecked Sendable {
 /// vapc `srcType`。宿主应按此决定返回文字还是图片，不要从 tag 字符串猜测。
 @objc(VPKDynamicSourceKind)
 public enum DynamicSourceKind: Int, Sendable {
-    /// 图片槽位，应对应 `DynamicContent.image` / `.imageURL` / `.hidden`。
+    /// 图片槽位，应对应 `DynamicContent.image` / `.hidden`。
     case image = 0
     /// 文字槽位，应对应 `.text` / `.textReplacement` / `.hidden`。
     case text = 1
