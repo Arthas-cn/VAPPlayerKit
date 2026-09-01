@@ -9,6 +9,8 @@
 
 A standalone iOS player for VAP (Video Animation Player). The core is Swift, distributed via Swift Package Manager, with a stable Objective-C facade.
 
+Current stable version: `1.0.0`
+
 It plays the same local MP4 assets as [Tencent VAP](https://github.com/Tencent/vap): hardware decode, alpha compositing, and vapc fusion overlays (user names, avatars, and other dynamic slots). Networking, business caches, and play queues are out of scope — the host owns those.
 
 ```swift
@@ -86,7 +88,7 @@ https://github.com/Arthas-cn/VAPPlayerKit.git
 Or in `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/Arthas-cn/VAPPlayerKit.git", from: "0.1.0")
+.package(url: "https://github.com/Arthas-cn/VAPPlayerKit.git", from: "1.0.0")
 ```
 
 ```swift
@@ -307,7 +309,7 @@ xcodebuild \
   test
 ```
 
-CI runs the Swift package tests and builds both sample apps. Device, long-loop, and Instruments gates live in [`VAPPlayerKit_SPM_ARCHITECTURE.md`](VAPPlayerKit_SPM_ARCHITECTURE.md). Performance bounds and known limits: [`VAPPlayerKit_PERFORMANCE_EVALUATION.md`](VAPPlayerKit_PERFORMANCE_EVALUATION.md).
+The release gate is that the Swift package builds and tests against the target iOS SDK. The Swift / Objective-C examples, device runs, long loops, and Instruments checks are optional maintainer validation. Release checks live in [`VAPPlayerKit_SPM_ARCHITECTURE.md`](VAPPlayerKit_SPM_ARCHITECTURE.md). Performance bounds and known limits: [`VAPPlayerKit_PERFORMANCE_EVALUATION.md`](VAPPlayerKit_PERFORMANCE_EVALUATION.md).
 
 On an iPhone 12, compared with the local `vap-master` implementation, the core path from prepare to the first GPU submission is about 30% faster on average across four key metrics. Cold-start performance improves by about 17%, warm-start performance by about 43%, and warm preparation by about 66–76%. Both regular assets and image/text replacement assets show gains.
 

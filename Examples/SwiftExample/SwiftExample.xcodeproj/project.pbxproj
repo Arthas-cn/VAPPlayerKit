@@ -12,8 +12,6 @@
 		11A000000000000000000042 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11A000000000000000000032 /* ViewController.swift */; };
 		11A000000000000000000043 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 11A000000000000000000033 /* Assets.xcassets */; };
 		11A000000000000000000044 /* VAPPlayerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 11A000000000000000000051 /* VAPPlayerKit */; };
-		11A0000000000000000000B4 /* SDWebImage in Frameworks */ = {isa = PBXBuildFile; productRef = 11A0000000000000000000B1 /* SDWebImage */; };
-		11A0000000000000000000B5 /* SDWebImageWebPCoder in Frameworks */ = {isa = PBXBuildFile; productRef = 11A0000000000000000000B3 /* SDWebImageWebPCoder */; };
 		11A000000000000000000081 /* VAP in Resources */ = {isa = PBXBuildFile; fileRef = 11A000000000000000000080 /* VAP */; };
 		11A000000000000000000085 /* FixtureCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11A000000000000000000082 /* FixtureCatalog.swift */; };
 		11A000000000000000000086 /* PlaybackDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11A000000000000000000083 /* PlaybackDetailViewController.swift */; };
@@ -22,6 +20,8 @@
 		11A00000000000000000009C /* BatchTestViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11A00000000000000000009B /* BatchTestViewController.swift */; };
 		11A0000000000000000000A1 /* GiftCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11A0000000000000000000A0 /* GiftCatalog.swift */; };
 		11A0000000000000000000A3 /* Gifts in Resources */ = {isa = PBXBuildFile; fileRef = 11A0000000000000000000A2 /* Gifts */; };
+		11A0000000000000000000B4 /* SDWebImage in Frameworks */ = {isa = PBXBuildFile; productRef = 11A0000000000000000000B1 /* SDWebImage */; };
+		11A0000000000000000000B5 /* SDWebImageWebPCoder in Frameworks */ = {isa = PBXBuildFile; productRef = 11A0000000000000000000B3 /* SDWebImageWebPCoder */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -63,9 +63,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-/* End PBXFrameworksBuildPhase section */
-
-/* Begin PBXFrameworksBuildPhase section */
 		11A000000000000000000092 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -387,7 +384,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.vapplayerkit.SwiftExample;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -415,7 +412,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.vapplayerkit.SwiftExample;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

@@ -626,7 +626,7 @@ Swift Package Manager 的 target 不能在同一个 target 中混合 Swift 和 O
 - VAPPlayerKitObjC target 只包含公开 Objective-C header 和 module map，不包含 .m 实现。
 - Swift 类通过 @objc(VPK...) 导出运行时符号。
 - header facade 只声明这些符号，避免 Objective-C 使用者依赖生成 header 的具体路径。
-- Swift 和 header 的 API 签名必须在 CI 中通过 Objective-C demo 编译验证。
+- Swift 和 header 的 API 签名必须在发布前通过 Objective-C demo 编译验证；这属于维护者本地验收，不是 SPM 使用者的运行时要求。
 
 示意目录：
 
@@ -760,8 +760,7 @@ VAPPlayerKit/
 ├── LICENSE
 ├── CONTRIBUTING.md
 ├── CHANGELOG.md
-└── .github/workflows/
-    └── ci.yml
+└── AGENTS.md                 工程协作与验证规则
 ~~~
 
 Package.swift 示意：
@@ -981,7 +980,7 @@ GitHub 仓库必须同时包含：
 - 提供 LICENSE、版本策略、CHANGELOG 和迁移说明。
 - 测试与 Demo 使用仓库内 `Tests/Fixtures/VAP/` 的样例（清单见该目录 README）。非法 XML 伪装 mp4 作为负向 fixture。不要把这批资源加入 gitignore。
 - 不提交真实用户图片、内网地址、签名文件和缓存。
-- CI 至少执行 Swift 编译、Swift 单元测试、Objective-C demo 编译和 Metal resource 检查。
+- 发布前本地至少执行 Swift 编译、Swift 单元测试，并在涉及对应代码时验证 Objective-C demo 和 Metal resource。
 - 使用 SemVer；破坏公开 API 时升级 major。
 - 每次 release 记录支持的 iOS、codec、VAP metadata version 和已知限制。
 
@@ -1018,10 +1017,10 @@ GitHub 仓库必须同时包含：
 
 ### Phase 4：公开发布
 
-- 完成 Objective-C demo、README、license、CI 和 fixture license。
+- 完成 Objective-C demo、README、license 和 fixture license。
 - 运行真机和 Instruments 验收。
-- 发布 0.x 版本，记录已支持和未支持的 VAP 变体。
-- 稳定后再发布 1.0，不在 1.0 前承诺旧 API 兼容。
+- 以 SemVer `1.0.0` 发布，记录已支持和未支持的 VAP 变体。
+- `1.0.0` 起承诺当前公开 API 的稳定性；后续破坏性变更必须升级 major。
 
 ## 16. 最终决策
 

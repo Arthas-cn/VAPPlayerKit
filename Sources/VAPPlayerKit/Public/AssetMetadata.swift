@@ -21,7 +21,7 @@ public final class AssetMetadata: NSObject {
     @objc public let containsAudio: Bool
     /// 例如 `h264` 或 `hevc`。
     @objc public let codec: String
-    /// vapc 版本。legacy 无 vapc 文件为 0。
+    /// vapc 版本。旧版 VAPC 和无 vapc 文件均为 0。
     @objc public let vapVersion: Int
     /// vapc 声明的动态 source；legacy 文件为空。
     @objc public let dynamicSources: [SourceMetadata]

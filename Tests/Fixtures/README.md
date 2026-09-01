@@ -18,12 +18,12 @@ Bundle.main.url(
 
 `18.mp4`
 
-文件按 `1.mp4` 到 `21.mp4` 编号，便于逐项回归。
+文件按 `1.mp4` 到 `21.mp4` 编号，另有 `movie.mp4`，便于逐项回归。
 
 ## 清单
 
-`1.mp4` 到 `21.mp4` 共 21 项；其中 `2.mp4` 与 `9.mp4` 是服务端返回的
-AccessDenied XML（并非 MP4），作为解析失败的负向样例。其余 19 项必须完成
+`1.mp4` 到 `21.mp4` 加 `movie.mp4` 共 22 项；其中 `2.mp4` 与 `9.mp4` 是服务端返回的
+AccessDenied XML（并非 MP4），作为解析失败的负向样例。其余 20 项必须完成
 inspect、视频解码和真机首帧渲染。
 
 | 编号 | 类型 | 回归要求 |
@@ -31,6 +31,7 @@ inspect、视频解码和真机首帧渲染。
 | `1, 3, 4, 7, 10, 14, 15, 17, 20, 21` | vapc 动态图片 + 文字 | 解析、完整解码、动态 RGBA8 texture 上传、真机首帧 |
 | `5, 8, 12, 13, 19` | vapc 动态图片（部分多槽位） | 解析、完整解码、动态 texture、真机首帧 |
 | `6, 11, 16, 18` | legacy packed VAP | legacy 布局、完整解码、真机首帧；`18` 为默认素材 |
+| `movie.mp4` | 旧版最小 VAPC + packed VAP | VAPC 缺少 `v/f` 时从媒体轨道推导帧数，并完成解码和真机首帧 |
 | `2, 9` | AccessDenied XML | 必须明确解析失败且不崩溃 |
 
 编码尺寸是 packed 视频物理分辨率，不是 vapc 逻辑画布。后续 parser 落地后应在测试里核对 `encodedVideoSize` 与 `canvasSize`。

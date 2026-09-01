@@ -49,6 +49,40 @@ final class VAPPlayerKitParserTests: XCTestCase {
         XCTAssertEqual(document.frames[0]?.count, 1)
     }
 
+    func testVapcReaderParsesLegacyLayoutWithTrackFrameCount() throws {
+        let json: [String: Any] = [
+            "info": [
+                "w": 750, "h": 1334, "fps": 30,
+                "videoW": 1500, "videoH": 1334,
+                "aFrame": [0, 0, 750, 1334], "rgbFrame": [750, 0, 750, 1334]
+            ]
+        ]
+        let document = try VapcReader().read(
+            from: JSONSerialization.data(withJSONObject: json),
+            legacyFrameCount: 121
+        )
+        XCTAssertEqual(document.version, 0)
+        XCTAssertEqual(document.frameCount, 121)
+        XCTAssertEqual(document.framesPerSecond, 30)
+        XCTAssertEqual(document.alphaMode, .left)
+        XCTAssertTrue(document.sources.isEmpty)
+        XCTAssertTrue(document.frames.isEmpty)
+    }
+
+    func testVapcReaderRejectsPartiallyMissingStructuredHeader() throws {
+        let json: [String: Any] = [
+            "info": [
+                "v": 2, "w": 100, "h": 100, "fps": 30,
+                "videoW": 200, "videoH": 100,
+                "aFrame": [0, 0, 100, 100], "rgbFrame": [100, 0, 100, 100]
+            ]
+        ]
+        XCTAssertThrowsError(try VapcReader().read(
+            from: JSONSerialization.data(withJSONObject: json),
+            legacyFrameCount: 1
+        ))
+    }
+
     func testVapcReaderRejectsUnknownVersionAndOutOfBoundsRect() throws {
         var root: [String: Any] = [
             "info": [
@@ -160,6 +194,17 @@ final class VAPPlayerKitParserTests: XCTestCase {
         XCTAssertEqual(metadata.dynamicSources.first?.kind, .image)
     }
 
+    func testInspectorParsesLegacyVapcMovieFixture() async throws {
+        let metadata = try await AssetInspector().inspect(url: VAPFixture.url("movie.mp4"))
+        XCTAssertEqual(metadata.encodedVideoSize, CGSize(width: 1500, height: 1334))
+        XCTAssertEqual(metadata.canvasSize, CGSize(width: 750, height: 1334))
+        XCTAssertEqual(metadata.alphaMode, .left)
+        XCTAssertEqual(metadata.vapVersion, 0)
+        XCTAssertEqual(metadata.codec, "h264")
+        XCTAssertEqual(metadata.frameCount, 121)
+        XCTAssertEqual(metadata.dynamicSources.count, 0)
+    }
+
     func testInspectorExposesTextSourceKindForContentTag() async throws {
         let metadata = try await AssetInspector().inspect(url: VAPFixture.url("13.mp4"))
         XCTAssertEqual(metadata.dynamicSources.map(\.tag), ["avatar1", "avatar2", "content"])
@@ -167,7 +212,7 @@ final class VAPPlayerKitParserTests: XCTestCase {
     }
 
     func testAllCommittedMediaFixturesInspectWithoutCrash() async throws {
-        XCTAssertEqual(VAPFixture.playableURLs.count, 19)
+        XCTAssertEqual(VAPFixture.playableURLs.count, 20)
         for url in VAPFixture.playableURLs {
             let metadata = try await AssetInspector().inspect(url: url)
             XCTAssertGreaterThan(metadata.frameCount, 0, url.lastPathComponent)

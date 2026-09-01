@@ -148,11 +148,11 @@ final class VAPPlayerKitTests: XCTestCase {
 
     func testCommittedVAPFixturesExist() {
         XCTAssertTrue(FileManager.default.fileExists(atPath: VAPFixture.defaultPlayableURL.path))
-        XCTAssertEqual(VAPFixture.allMP4URLs.count, 21)
-        XCTAssertEqual(VAPFixture.playableURLs.count, 19)
+        XCTAssertEqual(VAPFixture.allMP4URLs.count, 22)
+        XCTAssertEqual(VAPFixture.playableURLs.count, 20)
         XCTAssertEqual(
             VAPFixture.allMP4URLs.map(\.lastPathComponent),
-            (1...21).map { "\($0).mp4" }
+            (1...21).map { "\($0).mp4" } + ["movie.mp4"]
         )
         for name in VAPFixture.invalidXMLNames {
             XCTAssertTrue(FileManager.default.fileExists(atPath: VAPFixture.url(name).path))
@@ -713,7 +713,15 @@ final class VAPPlayerKitTests: XCTestCase {
             .fileResourceIdentifierKey
         ])
         XCTAssertEqual(Int64(try XCTUnwrap(values.fileSize)), expectedSize)
-        XCTAssertEqual(values.contentModificationDate, expectedDate)
+        let actualDate = try XCTUnwrap(values.contentModificationDate)
+        // Simulator filesystems can quantize mtime when setAttributes bridges
+        // between host and simulated-device storage. Keep this precondition
+        // tolerant while the production signature check remains strict.
+        XCTAssertEqual(
+            actualDate.timeIntervalSince1970,
+            expectedDate.timeIntervalSince1970,
+            accuracy: 1
+        )
         XCTAssertNotEqual(values.fileResourceIdentifier as? Data, expectedIdentifier)
 
         let player = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))

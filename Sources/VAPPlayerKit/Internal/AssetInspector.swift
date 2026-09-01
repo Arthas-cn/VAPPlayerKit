@@ -100,7 +100,14 @@ final class AssetInspector {
                 throw PlaybackError.invalidVapc(reason: "JSON payload is empty or exceeds 8 MiB.")
             }
             let payload = try boxReader.readPayload(of: box, inFile: url)
-            vapc = try VapcReader().read(from: payload)
+            // Some older VAP generators emit only the layout portion of VAPC and
+            // omit both info.v and info.f. The frame count comes from the media
+            // track in that format; never synthesize it from an arbitrary default.
+            let legacyFrameCount = try? await inferredLegacyFrameCount(
+                duration: durationSeconds,
+                track: videoTrack
+            )
+            vapc = try VapcReader().read(from: payload, legacyFrameCount: legacyFrameCount)
             guard approximatelyEqual(vapc.encodedVideoSize, encodedSize) else {
                 throw PlaybackError.invalidVapc(reason: "videoW/videoH do not match the video track.")
             }
@@ -160,11 +167,10 @@ final class AssetInspector {
             throw PlaybackError.invalidVapc(reason: "Legacy VAP requires an even encoded width for the left/right split.")
         }
         let canvas = CGSize(width: encodedVideoSize.width / 2, height: encodedVideoSize.height)
-        let nominalFPS = (try? await track.load(.nominalFrameRate)) ?? 0
-        guard nominalFPS > 0, nominalFPS <= 240 else {
-            throw PlaybackError.invalidMP4(reason: "Legacy VAP has no usable frame rate.")
-        }
-        let frameCount = max(1, Int((duration * Double(nominalFPS)).rounded()))
+        let (nominalFPS, frameCount) = try await inferredLegacyFrameRateAndFrameCount(
+            duration: duration,
+            track: track
+        )
         return VapcDocument(
             version: 0,
             canvasSize: canvas,
@@ -177,6 +183,31 @@ final class AssetInspector {
             sources: [],
             frames: [:]
         )
+    }
+
+    /// 旧版 VAP 没有独立的帧数字段，使用媒体轨道的 nominal frame rate。
+    /// 与无 VAPC 的 legacy 路径共用校验，保证两种旧格式的行为一致。
+    private func inferredLegacyFrameCount(duration: TimeInterval, track: AVAssetTrack) async throws -> Int {
+        try await inferredLegacyFrameRateAndFrameCount(duration: duration, track: track).frameCount
+    }
+
+    private func inferredLegacyFrameRateAndFrameCount(
+        duration: TimeInterval,
+        track: AVAssetTrack
+    ) async throws -> (nominalFPS: Float, frameCount: Int) {
+        let nominalFPS = (try? await track.load(.nominalFrameRate)) ?? 0
+        guard nominalFPS > 0, nominalFPS <= 240 else {
+            throw PlaybackError.invalidMP4(reason: "Legacy VAP has no usable frame rate.")
+        }
+        let rawFrameCount = duration * Double(nominalFPS)
+        guard rawFrameCount.isFinite, rawFrameCount > 0 else {
+            throw PlaybackError.invalidMP4(reason: "Legacy VAP has an invalid frame count.")
+        }
+        let frameCount = max(1, Int(rawFrameCount.rounded()))
+        guard frameCount <= 100_000 else {
+            throw PlaybackError.invalidMP4(reason: "Legacy VAP has too many frames.")
+        }
+        return (nominalFPS, frameCount)
     }
 
     /// inspector 与 decoder 的编码尺寸允许 1 像素误差。

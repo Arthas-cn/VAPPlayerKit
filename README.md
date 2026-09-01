@@ -9,6 +9,8 @@
 
 独立的 iOS VAP（Video Animation Player）播放组件。核心全部用 Swift 实现，通过 Swift Package Manager 分发，并提供稳定的 Objective-C 调用入口。
 
+当前稳定版本：`1.0.0`
+
 它播放的是与 [Tencent VAP](https://github.com/Tencent/vap) 相同的本地 MP4 素材：硬件解码、透明通道合成、vapc 融合动画（用户名、头像等动态槽位）。下载、业务缓存和播放队列不属于本仓库，由宿主自己完成。
 
 ```swift
@@ -86,7 +88,7 @@ https://github.com/Arthas-cn/VAPPlayerKit.git
 或在 `Package.swift` 中声明：
 
 ```swift
-.package(url: "https://github.com/Arthas-cn/VAPPlayerKit.git", from: "0.1.0")
+.package(url: "https://github.com/Arthas-cn/VAPPlayerKit.git", from: "1.0.0")
 ```
 
 ```swift
@@ -307,7 +309,7 @@ xcodebuild \
   test
 ```
 
-CI 会跑 Swift Package 测试，并编译 Swift / Objective-C 示例。发布前的真机、长循环和 Instruments 清单见 [`VAPPlayerKit_SPM_ARCHITECTURE.md`](VAPPlayerKit_SPM_ARCHITECTURE.md)；性能边界与已知限制见 [`VAPPlayerKit_PERFORMANCE_EVALUATION.md`](VAPPlayerKit_PERFORMANCE_EVALUATION.md)。
+发布门槛是 Swift Package 能够在目标 iOS SDK 上编译和测试；Swift / Objective-C 示例、真机、长循环和 Instruments 属于维护者的可选验证。发布前清单见 [`VAPPlayerKit_SPM_ARCHITECTURE.md`](VAPPlayerKit_SPM_ARCHITECTURE.md)；性能边界与已知限制见 [`VAPPlayerKit_PERFORMANCE_EVALUATION.md`](VAPPlayerKit_PERFORMANCE_EVALUATION.md)。
 
 在 iPhone 12 真机对比本地 `vap-master`：按四项核心指标综合计算，从准备播放到首帧进入 GPU 的核心链路平均耗时降低约 30%；冷启动提升约 17%，热启动提升约 43%，其中热启动准备阶段提升约 66%～76%。普通素材和图文替换素材均有提升。
 

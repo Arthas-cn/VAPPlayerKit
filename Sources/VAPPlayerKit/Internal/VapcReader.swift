@@ -85,6 +85,18 @@ final class VapcReader {
 
     /// 解析 vapc box 的 JSON payload。所有数组、尺寸和 rect 在构造模型前完成上限校验。
     func read(from data: Data) throws -> VapcDocument {
+        try read(from: data, legacyFrameCount: nil)
+    }
+
+    /// 解析旧版 VAPC。部分生成器只写入布局信息，不写 `info.v` / `info.f`；
+    /// 这种格式必须由调用方根据 AVFoundation 的媒体轨道提供帧数，不能从 JSON 猜测。
+    func read(from data: Data, legacyFrameCount: Int) throws -> VapcDocument {
+        try read(from: data, legacyFrameCount: Optional(legacyFrameCount))
+    }
+
+    /// `legacyFrameCount` 只对同时缺少 `v` 和 `f` 的旧版 VAPC 生效。
+    /// 缺少其中一个字段的结构化 VAPC 仍然视为非法，避免把损坏元数据静默当成兼容格式。
+    func read(from data: Data, legacyFrameCount: Int?) throws -> VapcDocument {
         guard !data.isEmpty, data.count <= Self.maximumJSONSize else {
             throw invalid("JSON payload is empty or exceeds 8 MiB.")
         }
@@ -98,11 +110,29 @@ final class VapcReader {
             throw invalid("Missing info object.")
         }
 
-        let version = try integer(info, "v")
-        guard version == 1 || version == 2 else {
-            throw invalid("Unsupported version \(version).")
+        let hasVersion = info["v"] != nil
+        let hasFrameCount = info["f"] != nil
+        let version: Int
+        let frameCount: Int
+        switch (hasVersion, hasFrameCount) {
+        case (true, true):
+            version = try integer(info, "v")
+            guard version == 1 || version == 2 else {
+                throw invalid("Unsupported version \(version).")
+            }
+            frameCount = try positiveInteger(info, "f", maximum: maximumFrames)
+        case (false, false):
+            guard let legacyFrameCount else {
+                throw invalid("Missing numeric field v.")
+            }
+            guard legacyFrameCount > 0, legacyFrameCount <= maximumFrames else {
+                throw invalid("Legacy frame count is out of range.")
+            }
+            version = 0
+            frameCount = legacyFrameCount
+        default:
+            throw invalid("Legacy vapc must omit both v and f fields.")
         }
-        let frameCount = try positiveInteger(info, "f", maximum: maximumFrames)
         let fps = try positiveInteger(info, "fps", maximum: 240)
         let canvasSize = try size(info, width: "w", height: "h")
         let videoSize = try size(info, width: "videoW", height: "videoH")
