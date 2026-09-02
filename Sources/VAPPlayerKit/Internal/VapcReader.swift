@@ -43,6 +43,13 @@ struct VapcAttachment: Sendable {
     let maskRotation: Int
 }
 
+/// inspection 完成后确定的底图布局。`automatic` 只存在于 PlaybackOptions，
+/// 不会进入 renderer，避免播放阶段再次猜测资源类型。
+enum ResolvedAssetMode: Sendable, Equatable {
+    case vap
+    case ordinaryVideo
+}
+
 /// vapc `frame` 数组里的一帧及其 attachments。
 struct VapcFrame: Sendable {
     let index: Int
@@ -51,6 +58,8 @@ struct VapcFrame: Sendable {
 
 /// 解析后的 vapc 不可变文档。
 struct VapcDocument {
+    /// 已确定的 packed VAP 或普通视频布局。
+    let assetMode: ResolvedAssetMode
     /// vapc 版本。未知版本必须失败，不能静默猜测。
     let version: Int
     /// 逻辑画布。
@@ -219,6 +228,7 @@ final class VapcReader {
         }
 
         return VapcDocument(
+            assetMode: .vap,
             version: version,
             canvasSize: canvasSize,
             alphaMode: alphaMode,

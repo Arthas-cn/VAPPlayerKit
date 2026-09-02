@@ -1,5 +1,16 @@
 import UIKit
 
+/// 播放资源的编码布局。默认自动识别，宿主通常不需要区分普通 MP4 和 VAP。
+@objc(VPKPlaybackAssetMode)
+public enum PlaybackAssetMode: Int, Sendable {
+    /// 有 vapc 时按 VAP；无 vapc 时识别旧 packed VAP，否则按普通视频。
+    case automatic = 0
+    /// 强制按 VAP 处理。适用于已知的旧版无 vapc packed VAP。
+    case vap = 1
+    /// 强制按普通视频处理，使用完整编码画面且不生成 Alpha。
+    case ordinaryVideo = 2
+}
+
 /// 动态槽位图片的播放策略。对本次播放的全部图片槽位生效。
 @objc(VPKDynamicImagePlaybackMode)
 public enum DynamicImagePlaybackMode: Int, Sendable {
@@ -24,6 +35,8 @@ public enum DynamicTextOverflowMode: Int, Sendable {
 /// 这与 `vap-master` 里 `repeatCount`「额外重复次数」语义不同，不要按旧值直传。
 @objc(VPKPlaybackOptions)
 public final class PlaybackOptions: NSObject, NSCopying {
+    /// 普通 MP4 与 VAP 的识别策略。默认自动识别，所以上层只需要传 URL。
+    @objc public var assetMode: PlaybackAssetMode = .automatic
     /// 总播放次数。`1` 播放一次，`2` 播放两次，`0` 无限循环。
     @objc public var loopCount: Int = 1 {
         didSet {
@@ -73,7 +86,7 @@ public final class PlaybackOptions: NSObject, NSCopying {
         PlaybackOptions()
     }
 
-    /// 使用全部默认值：播一次、内嵌音频、AspectFit、结束后清画面、后台挂起、动态图按内容播放、文字尾部截断。
+    /// 使用全部默认值：自动识别资源、播一次、内嵌音频、AspectFit、结束后清画面、后台挂起、动态图按内容播放、文字尾部截断。
     @objc public override init() {
         super.init()
     }
@@ -81,6 +94,7 @@ public final class PlaybackOptions: NSObject, NSCopying {
     /// 深拷贝到新对象，供 session 持有，避免宿主事后改 options 污染正在播放的 session。
     public func copy(with zone: NSZone? = nil) -> Any {
         let copy = PlaybackOptions()
+        copy.assetMode = assetMode
         copy.loopCount = loopCount
         copy.contentMode = contentMode
         copy.audioMode = audioMode

@@ -13,4 +13,6 @@ public enum AlphaMode: Int, Sendable {
     case top
     /// Alpha 在画面下方，RGB 在上方。
     case bottom
+    /// 普通视频没有 packed Alpha，RGB 使用完整编码画面。
+    case none
 }

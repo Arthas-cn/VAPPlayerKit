@@ -26,13 +26,16 @@ final class AssetInspector {
 
     /// 只返回宿主可见的 metadata。内部播放仍应调用 `inspectDetails` 以拿到 vapc。
     func inspect(url: URL) async throws -> AssetMetadata {
-        (try await inspectDetails(url: url)).metadata
+        (try await inspectDetails(url: url, assetMode: .automatic)).metadata
     }
 
     /// 解析本地 VAP 文件，产出可缓存的 metadata 和完整 vapc 布局。
     ///
     /// 会同时采集文件 identity、大小和修改时间，作为后续缓存命中的签名。
-    func inspectDetails(url: URL) async throws -> InspectionResult {
+    func inspectDetails(
+        url: URL,
+        assetMode: PlaybackAssetMode = .automatic
+    ) async throws -> InspectionResult {
         guard url.isFileURL else {
             throw PlaybackError.invalidURL
         }
@@ -95,7 +98,13 @@ final class AssetInspector {
         }
 
         let vapc: VapcDocument
-        if let box = boxes.first(where: { $0.type == "vapc" }) {
+        if assetMode == .ordinaryVideo {
+            vapc = try await ordinaryDocument(
+                encodedVideoSize: encodedSize,
+                duration: durationSeconds,
+                track: videoTrack
+            )
+        } else if let box = boxes.first(where: { $0.type == "vapc" }) {
             guard box.payloadRange.count <= VapcReader.maximumJSONSize else {
                 throw PlaybackError.invalidVapc(reason: "JSON payload is empty or exceeds 8 MiB.")
             }
@@ -111,8 +120,18 @@ final class AssetInspector {
             guard approximatelyEqual(vapc.encodedVideoSize, encodedSize) else {
                 throw PlaybackError.invalidVapc(reason: "videoW/videoH do not match the video track.")
             }
-        } else {
+        } else if assetMode == .vap || LegacyPackedVAPDetector.isLikelyPacked(
+            asset: asset,
+            track: videoTrack,
+            encodedVideoSize: encodedSize
+        ) {
             vapc = try await legacyDocument(encodedVideoSize: encodedSize, duration: durationSeconds, track: videoTrack)
+        } else {
+            vapc = try await ordinaryDocument(
+                encodedVideoSize: encodedSize,
+                duration: durationSeconds,
+                track: videoTrack
+            )
         }
 
         // 把完整 vapc 布局和文件签名挂到 metadata 上，供全局缓存与复用播放校验。
@@ -172,6 +191,7 @@ final class AssetInspector {
             track: track
         )
         return VapcDocument(
+            assetMode: .vap,
             version: 0,
             canvasSize: canvas,
             alphaMode: .left,
@@ -180,6 +200,31 @@ final class AssetInspector {
             encodedVideoSize: encodedVideoSize,
             rgbRect: CGRect(x: canvas.width, y: 0, width: canvas.width, height: canvas.height),
             alphaRect: CGRect(origin: .zero, size: canvas),
+            sources: [],
+            frames: [:]
+        )
+    }
+
+    /// 普通视频使用完整编码画面，没有 packed Alpha 或动态 VAP 槽位。
+    private func ordinaryDocument(
+        encodedVideoSize: CGSize,
+        duration: TimeInterval,
+        track: AVAssetTrack
+    ) async throws -> VapcDocument {
+        let (nominalFPS, frameCount) = try await inferredLegacyFrameRateAndFrameCount(
+            duration: duration,
+            track: track
+        )
+        return VapcDocument(
+            assetMode: .ordinaryVideo,
+            version: 0,
+            canvasSize: encodedVideoSize,
+            alphaMode: .none,
+            frameCount: frameCount,
+            framesPerSecond: Int(nominalFPS.rounded()),
+            encodedVideoSize: encodedVideoSize,
+            rgbRect: CGRect(origin: .zero, size: encodedVideoSize),
+            alphaRect: .zero,
             sources: [],
             frames: [:]
         )

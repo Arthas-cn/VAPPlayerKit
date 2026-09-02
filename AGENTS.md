@@ -14,6 +14,8 @@
 - 不要假设所有 `vapc.info` 都包含 `v` 和 `f`。旧版最小 VAPC 可能只保存布局字段；只有在 `v` 与 `f` **同时缺失**且媒体轨道能提供有效帧数时，才走 legacy fallback。
 - 只缺少 `v` 或只缺少 `f` 属于损坏的结构化 metadata，必须报错，不能静默降级。所有 fallback 帧数都要有限、为正且受上限保护。
 - 无 VAPC 的旧 packed VAP 使用左 Alpha、右 RGB、等宽画布的兼容布局；不要通过任意默认帧数猜测播放长度。
+- `PlaybackOptions.assetMode` 默认是 automatic：有 `vapc` 时按 VAP；无 `vapc` 时仅按首帧 packed 特征兼容旧 VAP，无法确认时按普通视频完整画面处理。普通视频的 `canvasSize == encodedVideoSize`、`alphaMode == .none`。
+- 旧无 VAPC packed VAP 与普通 MP4 在容器层面不存在绝对可区分标记；启发式误判时可显式使用 `.vap` 或 `.ordinaryVideo`。不要把 URL 扩展名当成格式标记。
 - 解析 metadata 成功不等于可以播放。修复后至少要验证 AVAssetReader/硬解、首帧上传和真机渲染；macOS 主机上的媒体解码结果不能替代 iPhone 设备结果。
 - 测试新素材时更新 fixture 清单、数量断言和 Demo UI 测试，避免目录扫描成功但回归用例漏测。
 
@@ -48,6 +50,7 @@
   - `SwiftExampleUITests/SwiftExampleUITests/testCatalogCountMatchesRowsAndPlaybackLifecycle`：核对目录数量、列表预览及详情页播放生命周期。
 
 - 任何编译错误都应修复类型/API 根因；不要通过强制解包、关闭警告或降低测试覆盖来掩盖错误。完成后至少执行一次构建，并针对播放器或素材变更执行相关真机回归。
+- 本组件只接受本地 `file://` 资源；远程资源下载、缓存和网络重试由宿主负责，不在播放内核中实现。
 
 ## 报告结果
 

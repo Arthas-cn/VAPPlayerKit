@@ -122,38 +122,47 @@ public final class AssetMetadataCache: NSObject {
     @objc(removeMetadataForURL:)
     public func remove(url: URL) {
         guard url.isFileURL else { return }
-        let key = Self.key(for: url) as String
         lock.lock()
-        if inFlight[key] != nil {
-            urlMutationGenerations[key, default: 0] &+= 1
+        for assetMode in Self.cacheAssetModes {
+            let key = Self.key(for: url, assetMode: assetMode) as String
+            if inFlight[key] != nil {
+                urlMutationGenerations[key, default: 0] &+= 1
+            }
+            cache.removeObject(forKey: key as NSString)
         }
-        cache.removeObject(forKey: key as NSString)
         lock.unlock()
     }
 
     /// 从缓存读取 metadata。仅供组件内部解析 / 测试使用。
     ///
     /// 禁用缓存、非文件 URL 或未命中时返回 `nil`。返回值仍需调用方做文件签名校验。
-    internal func metadata(for url: URL) -> AssetMetadata? {
+    internal func metadata(
+        for url: URL,
+        assetMode: PlaybackAssetMode = .automatic
+    ) -> AssetMetadata? {
         guard url.isFileURL else { return nil }
         lock.lock()
         defer { lock.unlock() }
         guard storedCountLimit > 0 else { return nil }
-        return cache.object(forKey: Self.key(for: url))
+        return cache.object(forKey: Self.key(for: url, assetMode: assetMode))
     }
 
     /// 写入组件解析出的可复用 metadata。
     ///
     /// 必须同时满足：本地文件 URL、`isReusableForPlayback == true`、
     /// `sourceURL` 与入参 URL 的规范化路径一致。手工摘要对象不会进入缓存。
-    internal func insert(_ metadata: AssetMetadata, for url: URL) {
+    internal func insert(
+        _ metadata: AssetMetadata,
+        for url: URL,
+        assetMode: PlaybackAssetMode = .automatic
+    ) {
         guard url.isFileURL,
               metadata.isReusableForPlayback,
               metadata.sourceURL == url.standardizedFileURL else {
             return
         }
         lock.lock()
-        store(metadata, for: url)
+        store(metadata, for: url, assetMode: assetMode)
         lock.unlock()
     }
 
@@ -164,26 +173,39 @@ public final class AssetMetadataCache: NSObject {
     /// 2. 命中缓存时校验文件签名；失效则丢弃该项并进入下一步。
     /// 3. cache miss 时合并同一 URL、同一代数上的并发请求，只执行一次 inspection。
     /// 4. 若 `makeFlight` 返回 `nil`（例如刚被另一线程写入），循环重试读缓存。
-    internal func resolve(url: URL, inspector: AssetInspector) async throws -> Resolution {
+    internal func resolve(
+        url: URL,
+        inspector: AssetInspector,
+        assetMode: PlaybackAssetMode = .automatic
+    ) async throws -> Resolution {
         guard url.isFileURL else {
-            let inspection = try await inspector.inspectDetails(url: url)
+            let inspection = try await inspector.inspectDetails(url: url, assetMode: assetMode)
             return Resolution(inspection: inspection, reusedMetadata: nil)
         }
 
         while true {
-            if let cachedMetadata = metadata(for: url) {
+            if let cachedMetadata = metadata(for: url, assetMode: assetMode) {
                 do {
                     return Resolution(
-                        inspection: try Self.reusableInspection(from: cachedMetadata, for: url),
+                        inspection: try Self.reusableInspection(
+                            from: cachedMetadata,
+                            for: url,
+                            assetMode: assetMode
+                        ),
                         reusedMetadata: cachedMetadata
                     )
                 } catch {
-                    removeIfCurrent(cachedMetadata, for: url)
+                    removeIfCurrent(cachedMetadata, for: url, assetMode: assetMode)
                 }
             }
 
-            let key = Self.key(for: url) as String
-            guard let flight = makeFlight(for: key, url: url, inspector: inspector) else {
+            let key = Self.key(for: url, assetMode: assetMode) as String
+            guard let flight = makeFlight(
+                for: key,
+                url: url,
+                inspector: inspector,
+                assetMode: assetMode
+            ) else {
                 continue
             }
             do {
@@ -204,7 +226,8 @@ public final class AssetMetadataCache: NSObject {
     private func makeFlight(
         for key: String,
         url: URL,
-        inspector: AssetInspector
+        inspector: AssetInspector,
+        assetMode: PlaybackAssetMode
     ) -> InFlight? {
         lock.lock()
         defer { lock.unlock() }
@@ -220,8 +243,13 @@ public final class AssetMetadataCache: NSObject {
             return nil
         }
         let task = Task { [weak self] in
-            let inspection = try await inspector.inspectDetails(url: url)
-            self?.storeIfCurrent(inspection.metadata, for: url, generation: generation)
+            let inspection = try await inspector.inspectDetails(url: url, assetMode: assetMode)
+            self?.storeIfCurrent(
+                inspection.metadata,
+                for: url,
+                assetMode: assetMode,
+                generation: generation
+            )
             return inspection
         }
         let flight = InFlight(task: task, generation: generation)
@@ -230,9 +258,13 @@ public final class AssetMetadataCache: NSObject {
     }
 
     /// 仅当缓存里仍是这份 metadata 时才移除，避免误删后来写入的更新值。
-    private func removeIfCurrent(_ metadata: AssetMetadata, for url: URL) {
+    private func removeIfCurrent(
+        _ metadata: AssetMetadata,
+        for url: URL,
+        assetMode: PlaybackAssetMode
+    ) {
         guard url.isFileURL else { return }
-        let key = Self.key(for: url) as String
+        let key = Self.key(for: url, assetMode: assetMode) as String
         lock.lock()
         guard cache.object(forKey: key as NSString) === metadata else {
             lock.unlock()
@@ -251,12 +283,18 @@ public final class AssetMetadataCache: NSObject {
     /// 手工摘要或来自其他路径的 metadata 会抛出 `invalidVapc`。
     internal static func reusableInspection(
         from metadata: AssetMetadata,
-        for url: URL
+        for url: URL,
+        assetMode: PlaybackAssetMode = .automatic
     ) throws -> InspectionResult {
         guard metadata.sourceURL == url.standardizedFileURL,
               let document = metadata.playbackDocument else {
             throw PlaybackError.invalidVapc(
                 reason: "AssetMetadata is not reusable or belongs to a different local URL."
+            )
+        }
+        guard matches(document: document, requestedAssetMode: assetMode) else {
+            throw PlaybackError.invalidVapc(
+                reason: "AssetMetadata was prepared with a different asset mode."
             )
         }
         try validateReusableFileSignature(metadata, for: url)
@@ -308,24 +346,29 @@ public final class AssetMetadataCache: NSObject {
     }
 
     /// 在已持有 `lock` 的前提下写入缓存。容量为 0 时直接忽略。
-    private func store(_ metadata: AssetMetadata, for url: URL) {
+    private func store(
+        _ metadata: AssetMetadata,
+        for url: URL,
+        assetMode: PlaybackAssetMode
+    ) {
         guard storedCountLimit > 0 else { return }
-        cache.setObject(metadata, forKey: Self.key(for: url))
+        cache.setObject(metadata, forKey: Self.key(for: url, assetMode: assetMode))
     }
 
     /// inspection 完成后，仅当代数未变化时才写入，避免覆盖宿主主动清理后的空缓存。
     private func storeIfCurrent(
         _ metadata: AssetMetadata,
         for url: URL,
+        assetMode: PlaybackAssetMode,
         generation: Generation
     ) {
         lock.lock()
         let currentGeneration = Generation(
             global: globalMutationGeneration,
-            url: urlMutationGenerations[Self.key(for: url) as String, default: 0]
+            url: urlMutationGenerations[Self.key(for: url, assetMode: assetMode) as String, default: 0]
         )
         if currentGeneration == generation {
-            store(metadata, for: url)
+            store(metadata, for: url, assetMode: assetMode)
         }
         lock.unlock()
     }
@@ -347,13 +390,37 @@ public final class AssetMetadataCache: NSObject {
         lock.unlock()
     }
 
+    private static func matches(
+        document: VapcDocument,
+        requestedAssetMode: PlaybackAssetMode
+    ) -> Bool {
+        switch requestedAssetMode {
+        case .automatic:
+            return true
+        case .vap:
+            return document.assetMode == .vap
+        case .ordinaryVideo:
+            return document.assetMode == .ordinaryVideo
+        }
+    }
+
     /// 用规范化 `file://` URL 的 SHA-256 作为缓存键。
     ///
     /// 标准化路径可合并 `/foo/../bar` 这类等价写法；哈希避免把完整路径明文作为键，
     /// 也避免超长路径带来的字典开销。
-    private static func key(for url: URL) -> NSString {
+    private static let cacheAssetModes: [PlaybackAssetMode] = [
+        .automatic,
+        .vap,
+        .ordinaryVideo
+    ]
+
+    private static func key(
+        for url: URL,
+        assetMode: PlaybackAssetMode
+    ) -> NSString {
         let canonicalURL = url.standardizedFileURL
-        let digest = SHA256.hash(data: Data(canonicalURL.absoluteString.utf8))
+        let source = "\(canonicalURL.absoluteString)#asset-mode=\(assetMode.rawValue)"
+        let digest = SHA256.hash(data: Data(source.utf8))
         let hex = digest.map { String(format: "%02x", $0) }.joined()
         return hex as NSString
     }

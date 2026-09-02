@@ -10,6 +10,7 @@
 - (void)testPlaybackOptionsDefaults {
     VPKPlaybackOptions *options = VPKPlaybackOptions.defaultOptions;
     XCTAssertEqual(options.loopCount, 1);
+    XCTAssertEqual(options.assetMode, VPKPlaybackAssetModeAutomatic);
     XCTAssertEqual(options.audioMode, VPKAudioModeEmbedded);
     XCTAssertTrue(options.clearsAfterFinish);
     XCTAssertEqual(options.dynamicImagePlaybackMode, VPKDynamicImagePlaybackModeAnimated);
@@ -59,6 +60,7 @@
         vapVersion:0
         dynamicSources:@[]];
     XCTAssertFalse(metadata.reusableForPlayback);
+    XCTAssertTrue(metadata.isVAP);
 }
 
 - (void)testErrorDomainConstant {

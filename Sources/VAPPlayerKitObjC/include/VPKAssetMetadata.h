@@ -13,18 +13,22 @@ typedef NS_ENUM(NSInteger, VPKAlphaMode) {
     /// Alpha 在上，RGB 在下。
     VPKAlphaModeTop,
     /// Alpha 在下，RGB 在上。
-    VPKAlphaModeBottom
+    VPKAlphaModeBottom,
+    /// 普通视频没有 packed Alpha，RGB 使用完整编码画面。
+    VPKAlphaModeNone
 };
 
-/// 不可变资源元数据。`canvasSize` 用于布局，`encodedVideoSize` 是 packed 编码尺寸。
+/// 不可变资源元数据。`canvasSize` 用于布局；普通视频的 canvas 与编码尺寸相同。
 @interface VPKAssetMetadata : NSObject
 
-/// packed RGB+Alpha 视频编码宽高。
+/// packed VAP 或普通视频的编码宽高。
 @property (nonatomic, readonly, assign) CGSize encodedVideoSize;
 /// vapc 逻辑画布。
 @property (nonatomic, readonly, assign) CGSize canvasSize;
 /// Alpha 布局。
 @property (nonatomic, readonly, assign) VPKAlphaMode alphaMode;
+/// 是否为带 Alpha 的 VAP；普通 MP4 为 NO。
+@property (nonatomic, readonly, assign, getter=isVAP) BOOL isVAP;
 /// 帧数。
 @property (nonatomic, readonly, assign) NSInteger frameCount;
 /// 时长（秒）。

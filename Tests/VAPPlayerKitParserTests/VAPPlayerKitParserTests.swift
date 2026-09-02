@@ -205,6 +205,33 @@ final class VAPPlayerKitParserTests: XCTestCase {
         XCTAssertEqual(metadata.dynamicSources.count, 0)
     }
 
+    func testInspectorAutomaticallyUsesFullFrameForOrdinaryMP4() async throws {
+        let metadata = try await AssetInspector().inspect(url: VAPFixture.url("home.mp4"))
+        XCTAssertEqual(metadata.encodedVideoSize, CGSize(width: 788, height: 788))
+        XCTAssertEqual(metadata.canvasSize, CGSize(width: 788, height: 788))
+        XCTAssertEqual(metadata.alphaMode, .none)
+        XCTAssertEqual(metadata.vapVersion, 0)
+        XCTAssertEqual(metadata.dynamicSources.count, 0)
+        XCTAssertFalse(metadata.isVAP)
+    }
+
+    func testAssetModeCanOverrideAutomaticLegacyDetection() async throws {
+        let inspector = AssetInspector()
+        let ordinary = try await inspector.inspectDetails(
+            url: VAPFixture.url(VAPFixture.defaultPlayableName),
+            assetMode: .ordinaryVideo
+        ).metadata
+        XCTAssertEqual(ordinary.canvasSize, ordinary.encodedVideoSize)
+        XCTAssertEqual(ordinary.alphaMode, .none)
+
+        let legacyVAP = try await inspector.inspectDetails(
+            url: VAPFixture.url("home.mp4"),
+            assetMode: .vap
+        ).metadata
+        XCTAssertEqual(legacyVAP.alphaMode, .left)
+        XCTAssertEqual(legacyVAP.canvasSize.width, legacyVAP.encodedVideoSize.width / 2)
+    }
+
     func testInspectorExposesTextSourceKindForContentTag() async throws {
         let metadata = try await AssetInspector().inspect(url: VAPFixture.url("13.mp4"))
         XCTAssertEqual(metadata.dynamicSources.map(\.tag), ["avatar1", "avatar2", "content"])
@@ -212,7 +239,7 @@ final class VAPPlayerKitParserTests: XCTestCase {
     }
 
     func testAllCommittedMediaFixturesInspectWithoutCrash() async throws {
-        XCTAssertEqual(VAPFixture.playableURLs.count, 20)
+        XCTAssertEqual(VAPFixture.playableURLs.count, 20 + (VAPFixture.optionalFixtureNames.contains("home.mp4") ? 1 : 0))
         for url in VAPFixture.playableURLs {
             let metadata = try await AssetInspector().inspect(url: url)
             XCTAssertGreaterThan(metadata.frameCount, 0, url.lastPathComponent)
@@ -252,7 +279,7 @@ final class VAPPlayerKitParserTests: XCTestCase {
     }
 
     func testInspectorRejectsInvalidXMLFixture() async {
-        for name in VAPFixture.invalidXMLNames {
+        for name in VAPFixture.existingInvalidXMLNames {
             do {
                 _ = try await AssetInspector().inspect(url: VAPFixture.url(name))
                 XCTFail("Expected invalidMP4 for \(name)")
@@ -292,7 +319,7 @@ final class VAPPlayerKitParserTests: XCTestCase {
     }
 
     func testInvalidXMLFixtureIsNotAValidMP4Header() throws {
-        for name in VAPFixture.invalidXMLNames {
+        for name in VAPFixture.existingInvalidXMLNames {
             let data = try Data(contentsOf: VAPFixture.url(name))
             XCTAssertFalse(data.starts(with: Data("ftyp".utf8)), name)
             let prefix = String(data: data.prefix(32), encoding: .utf8) ?? ""

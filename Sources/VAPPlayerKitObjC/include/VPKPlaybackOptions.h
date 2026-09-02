@@ -2,6 +2,16 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// 播放资源的编码布局。默认自动识别，宿主不需要从 URL 区分普通 MP4 和 VAP。
+typedef NS_ENUM(NSInteger, VPKPlaybackAssetMode) {
+    /// 有 vapc 时按 VAP；无 vapc 时识别旧 packed VAP，否则按普通视频。
+    VPKPlaybackAssetModeAutomatic = 0,
+    /// 强制按 VAP 处理。
+    VPKPlaybackAssetModeVAP,
+    /// 强制按普通视频处理，不使用 packed Alpha。
+    VPKPlaybackAssetModeOrdinaryVideo
+};
+
 /// 音频策略。对应 Swift `AudioMode`。播放器不会自行决定是否出声。
 typedef NS_ENUM(NSInteger, VPKAudioMode) {
     /// 不创建音频资源。
@@ -40,6 +50,9 @@ typedef NS_ENUM(NSInteger, VPKDynamicTextOverflowMode) {
 
 /// 一次播放配置。`loopCount` 是总次数：1 播一次，0 无限循环。不要按旧 `repeatCount` 直传。
 @interface VPKPlaybackOptions : NSObject <NSCopying>
+
+/// 普通 MP4 与 VAP 的识别策略，默认 VPKPlaybackAssetModeAutomatic。
+@property (nonatomic, assign) VPKPlaybackAssetMode assetMode;
 
 /// 总播放次数。1 播放一次，2 播放两次，0 无限循环。负值会被钳制为 1。
 @property (nonatomic, assign) NSInteger loopCount;

@@ -26,12 +26,13 @@ vertex VPKVertexOut vpk_vertex(uint vid [[vertex_id]]) {
     return out;
 }
 
-/// packed 视频底图的 RGB/Alpha 采样矩形和 YCbCr 矩阵。
+/// 视频底图的 RGB/Alpha 采样矩形、模式和 YCbCr 矩阵。
 struct VPKFrameUniforms {
     float4 rgbRect;
     float4 alphaRect;
     uint colorMatrix;
-    uint3 padding;
+    uint alphaEnabled;
+    uint2 padding;
 };
 
 /// 动态槽位顶点 / fragment 共用的画布矩形、mask 区域、旋转和 source UV 窗口。
@@ -75,7 +76,7 @@ float3 vpk_yuv_to_rgb(texture2d<float> yTexture,
     );
 }
 
-/// 按 vapc 的真实区域拆分 RGB/Alpha，并输出预乘 alpha。
+/// 普通视频采样完整 RGB 并输出不透明像素；VAP 按 vapc 的真实区域拆分 RGB/Alpha。
 fragment float4 vpk_fragment(
     VPKVertexOut in [[stage_in]],
     texture2d<float> yTexture [[texture(0)]],
@@ -88,6 +89,9 @@ fragment float4 vpk_fragment(
     float3 rgb = saturate(vpk_yuv_to_rgb(
         yTexture, uvTexture, linearSampler, rgbCoordinate, uniforms.colorMatrix
     ));
+    if (uniforms.alphaEnabled == 0) {
+        return float4(rgb, 1.0);
+    }
     float alphaY = yTexture.sample(linearSampler, alphaCoordinate).r;
     float alpha = saturate((alphaY - (16.0 / 255.0)) * (255.0 / 219.0));
     return float4(rgb * alpha, alpha);

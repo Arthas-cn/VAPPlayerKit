@@ -163,7 +163,7 @@ final class PlaybackDetailViewController: UIViewController {
 
     private func makeAssetHeader() -> UIView {
         let eyebrow = UILabel()
-        eyebrow.text = fixture.looksLikeMedia ? "LOCAL VAP FIXTURE" : "NEGATIVE FIXTURE"
+        eyebrow.text = fixture.looksLikeMedia ? "LOCAL MEDIA FIXTURE" : "NEGATIVE FIXTURE"
         eyebrow.font = .systemFont(ofSize: 11, weight: .bold)
         eyebrow.textColor = UIColor(red: 0.42, green: 0.82, blue: 1, alpha: 1)
         let name = UILabel()
@@ -579,7 +579,8 @@ final class PlaybackDetailViewController: UIViewController {
     private func display(_ metadata: AssetMetadata) {
         currentMetadata = metadata
         metadataLabel.text = String(
-            format: "codec %@ · vapc v%ld · %ld frames · %.3fs\nencoded %.0f×%.0f · canvas %.0f×%.0f · alpha %@\naudio %@ · dynamic %ld",
+            format: "%@ · codec %@ · vapc v%ld · %ld frames · %.3fs\nencoded %.0f×%.0f · canvas %.0f×%.0f · alpha %@\naudio %@ · dynamic %ld",
+            metadata.isVAP ? "VAP" : "普通视频",
             metadata.codec,
             metadata.vapVersion,
             metadata.frameCount,

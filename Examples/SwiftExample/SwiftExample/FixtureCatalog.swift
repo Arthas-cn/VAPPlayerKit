@@ -1,7 +1,7 @@
 import Foundation
 
 struct VAPFixture: Hashable {
-    private static let expectedNegativeNames: Set<String> = ["2.mp4", "9.mp4"]
+    private static let expectedNegativeNames: Set<String> = ["2.mp4", "9.mp4", "u1.mp4", "u2.mp4", "u3.mp4"]
 
     let url: URL
     let byteCount: Int64

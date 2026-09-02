@@ -109,6 +109,8 @@ player.delegate = self
 player.dynamicContentProvider = self
 
 let options = PlaybackOptions.defaultOptions
+// 默认 automatic：播放器内部识别普通 MP4 / VAP，上层只传 URL
+options.assetMode = .automatic
 options.loopCount = 1          // 播一次；2 播两次；0 无限循环
 options.audioMode = .embedded  // 默认即内嵌音轨；静音用 .muted
 player.play(url: fileURL, options: options)
@@ -161,6 +163,7 @@ options.loopCount = 1;
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
+| `assetMode` | `.automatic` | 自动识别普通 MP4 / VAP；也可强制 `.vap` 或 `.ordinaryVideo` |
 | `loopCount` | `1` | 总播放次数。`0` 无限循环。负值会被钳制为 `1`。**不要把旧 `repeatCount` 原样传入。** |
 | `contentMode` | `.scaleAspectFit` | 按 `canvasSize` 缩放 |
 | `audioMode` | `.embedded` | `.muted` / `.embedded` / `.external` / `.disabled` |
@@ -172,6 +175,10 @@ options.loopCount = 1;
 | `marqueeStartDelay` | `0.6` | 每个滚动周期开头的停顿，秒 |
 
 `.external` 表示组件不创建音频播放器，音画同步由宿主负责。`.disabled` 忽略音轨，但 metadata 仍可能报告 `containsAudio`。
+
+`assetMode` 默认为 `.automatic`：包含 `vapc` 的文件按 VAP 处理；没有 `vapc` 的文件会检查旧 packed VAP 的首帧特征，无法确认时按普通 MP4 的完整画面处理。普通视频的 metadata 使用完整编码尺寸，`alphaMode` 为 `.none`、`isVAP` 为 `false`。
+
+没有 `vapc` 且首帧特征与旧 packed VAP 冲突的极少数文件，可以显式设置 `.ordinaryVideo`；已知的旧无 `vapc` packed VAP 可以显式设置 `.vap`。组件仍只接受本地 `file://` URL，远程 URL 由宿主下载并落盘后再传入。
 
 ## 动态融合内容
 

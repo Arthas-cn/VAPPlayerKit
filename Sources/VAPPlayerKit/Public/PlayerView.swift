@@ -475,6 +475,7 @@ private struct PlayPreparation {
 
 /// `PlaybackOptions` 的不可变快照，用于判断 prepared session 是否仍匹配宿主配置。
 private struct OptionsSignature: Equatable {
+    let assetMode: PlaybackAssetMode
     let loopCount: Int
     let contentMode: UIView.ContentMode
     let audioMode: AudioMode
@@ -486,6 +487,7 @@ private struct OptionsSignature: Equatable {
     let marqueeStartDelay: TimeInterval
 
     init(_ options: PlaybackOptions) {
+        assetMode = options.assetMode
         loopCount = options.loopCount
         contentMode = options.contentMode
         audioMode = options.audioMode

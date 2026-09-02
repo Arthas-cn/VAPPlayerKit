@@ -11,6 +11,7 @@ static NSString *VPKAlphaModeName(VPKAlphaMode mode) {
         case VPKAlphaModeRight: return @"right";
         case VPKAlphaModeTop: return @"top";
         case VPKAlphaModeBottom: return @"bottom";
+        case VPKAlphaModeNone: return @"none";
     }
     return @"unknown";
 }
@@ -190,7 +191,7 @@ static NSString *VPKFinishReasonName(VPKFinishReason reason) {
 
 - (UIView *)makeAssetHeader {
     UILabel *eyebrow = [[UILabel alloc] init];
-    eyebrow.text = self.fixture.looksLikeMedia ? @"LOCAL VAP FIXTURE" : @"NEGATIVE FIXTURE";
+    eyebrow.text = self.fixture.looksLikeMedia ? @"LOCAL MEDIA FIXTURE" : @"NEGATIVE FIXTURE";
     eyebrow.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
     eyebrow.textColor = [UIColor colorWithRed:0.42 green:0.82 blue:1 alpha:1];
     UILabel *name = [[UILabel alloc] init];
@@ -564,7 +565,8 @@ static NSString *VPKFinishReasonName(VPKFinishReason reason) {
 - (void)displayMetadata:(VPKAssetMetadata *)metadata {
     self.currentMetadata = metadata;
     self.metadataLabel.text = [NSString stringWithFormat:
-                               @"codec %@ · vapc v%ld · %ld frames · %.3fs\nencoded %.0f×%.0f · canvas %.0f×%.0f · alpha %@\naudio %@ · dynamic %lu",
+                               @"%@ · codec %@ · vapc v%ld · %ld frames · %.3fs\nencoded %.0f×%.0f · canvas %.0f×%.0f · alpha %@\naudio %@ · dynamic %lu",
+                               metadata.isVAP ? @"VAP" : @"普通视频",
                                metadata.codec,
                                (long)metadata.vapVersion,
                                (long)metadata.frameCount,

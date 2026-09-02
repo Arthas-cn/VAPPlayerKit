@@ -39,7 +39,7 @@
     static NSSet<NSString *> *expectedNegativeNames;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        expectedNegativeNames = [NSSet setWithObjects:@"2.mp4", @"9.mp4", nil];
+        expectedNegativeNames = [NSSet setWithObjects:@"2.mp4", @"9.mp4", @"u1.mp4", @"u2.mp4", @"u3.mp4", nil];
     });
     return ![expectedNegativeNames containsObject:self.fileName];
 }

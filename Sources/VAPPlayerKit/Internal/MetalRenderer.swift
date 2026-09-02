@@ -13,12 +13,13 @@ struct RenderSnapshot: Sendable {
     let contentMode: UIView.ContentMode
 }
 
-/// 视频底图 fragment 的 RGB/Alpha 采样区域和 YCbCr 矩阵。
+/// 视频底图 fragment 的 RGB/Alpha 采样区域、模式和 YCbCr 矩阵。
 private struct FrameUniforms {
     var rgbRect: SIMD4<Float>
     var alphaRect: SIMD4<Float>
     var colorMatrix: UInt32
-    var padding = SIMD3<UInt32>(repeating: 0)
+    var alphaEnabled: UInt32
+    var padding = SIMD2<UInt32>(repeating: 0)
 }
 
 /// 动态槽位 overlay 的画布矩形、mask 区域、旋转和 source UV 窗口。
@@ -355,7 +356,8 @@ final class MetalRenderer: @unchecked Sendable {
         var uniforms = FrameUniforms(
             rgbRect: normalized(vapc.rgbRect, within: vapc.encodedVideoSize),
             alphaRect: normalized(vapc.alphaRect, within: vapc.encodedVideoSize),
-            colorMatrix: colorMatrix(for: pixelBuffer)
+            colorMatrix: colorMatrix(for: pixelBuffer),
+            alphaEnabled: vapc.alphaMode == .none ? 0 : 1
         )
         encoder.setFragmentBytes(&uniforms, length: MemoryLayout<FrameUniforms>.stride, index: 0)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)

@@ -3,16 +3,18 @@ import CoreGraphics
 
 /// 一份 VAP 资源解析后的不可变元数据。
 ///
-/// `encodedVideoSize` 是 packed 视频的物理编码尺寸；`canvasSize` 是 vapc 定义的逻辑画布。
-/// 布局必须用 `canvasSize`，对照 `vap-master` 的 `QGVAPConfigModel`，但不暴露可变 JSON。
+/// VAP 的 `encodedVideoSize` 是 packed 视频物理尺寸，`canvasSize` 是 vapc 逻辑画布；
+/// 普通视频两者相同。布局必须用 `canvasSize`，但不暴露可变 JSON。
 @objc(VPKAssetMetadata)
 public final class AssetMetadata: NSObject {
-    /// packed RGB+Alpha 视频的编码宽高。
+    /// packed VAP 或普通视频的编码宽高。
     @objc public let encodedVideoSize: CGSize
-    /// 逻辑画布尺寸，用于 AspectFit / Fill 和宿主布局。
+    /// 逻辑画布尺寸，用于 AspectFit / Fill 和宿主布局；普通视频为完整编码尺寸。
     @objc public let canvasSize: CGSize
-    /// Alpha 区域相对 RGB 的方向。
+    /// Alpha 区域相对 RGB 的方向；普通视频为 `.none`。
     @objc public let alphaMode: AlphaMode
+    /// 是否为带 Alpha 的 VAP。普通 MP4 为 `false`。
+    @objc public var isVAP: Bool { alphaMode != .none }
     /// 可展示的帧数量。
     @objc public let frameCount: Int
     /// 媒体时长，单位秒。

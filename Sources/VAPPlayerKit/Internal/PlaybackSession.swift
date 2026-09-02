@@ -186,11 +186,19 @@ final class PlaybackSession {
             let inspection: InspectionResult
             let reusedMetadata: AssetMetadata?
             if let suppliedMetadata {
-                inspection = try AssetMetadataCache.reusableInspection(from: suppliedMetadata, for: url)
-                AssetMetadataCache.shared.insert(suppliedMetadata, for: url)
+                inspection = try AssetMetadataCache.reusableInspection(
+                    from: suppliedMetadata,
+                    for: url,
+                    assetMode: options.assetMode
+                )
+                AssetMetadataCache.shared.insert(suppliedMetadata, for: url, assetMode: options.assetMode)
                 reusedMetadata = suppliedMetadata
             } else {
-                let resolution = try await AssetMetadataCache.shared.resolve(url: url, inspector: inspector)
+                let resolution = try await AssetMetadataCache.shared.resolve(
+                    url: url,
+                    inspector: inspector,
+                    assetMode: options.assetMode
+                )
                 inspection = resolution.inspection
                 reusedMetadata = resolution.reusedMetadata
             }

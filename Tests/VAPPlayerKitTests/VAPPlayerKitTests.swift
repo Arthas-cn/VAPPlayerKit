@@ -6,6 +6,7 @@ import CoreMedia
 final class VAPPlayerKitTests: XCTestCase {
     func testDefaultPlaybackOptions() {
         let options = PlaybackOptions.defaultOptions
+        XCTAssertEqual(options.assetMode, .automatic)
         XCTAssertEqual(options.loopCount, 1)
         XCTAssertEqual(options.contentMode, .scaleAspectFit)
         XCTAssertEqual(options.audioMode, .embedded)
@@ -19,23 +20,27 @@ final class VAPPlayerKitTests: XCTestCase {
 
     func testPlaybackOptionsCopyIsIndependent() {
         let original = PlaybackOptions.defaultOptions
+        original.assetMode = .ordinaryVideo
         original.loopCount = 0
         original.dynamicImagePlaybackMode = .still
         original.dynamicTextOverflowMode = .marquee
         original.marqueeSpeed = 80
         original.marqueeStartDelay = 1.2
         let copy = original.copy() as! PlaybackOptions
+        copy.assetMode = .vap
         copy.loopCount = 2
         copy.dynamicImagePlaybackMode = .animated
         copy.dynamicTextOverflowMode = .truncate
         copy.marqueeSpeed = 20
         copy.marqueeStartDelay = 0
         XCTAssertEqual(original.loopCount, 0)
+        XCTAssertEqual(original.assetMode, .ordinaryVideo)
         XCTAssertEqual(original.dynamicImagePlaybackMode, .still)
         XCTAssertEqual(original.dynamicTextOverflowMode, .marquee)
         XCTAssertEqual(original.marqueeSpeed, 80, accuracy: 0.001)
         XCTAssertEqual(original.marqueeStartDelay, 1.2, accuracy: 0.0001)
         XCTAssertEqual(copy.loopCount, 2)
+        XCTAssertEqual(copy.assetMode, .vap)
         XCTAssertEqual(copy.dynamicImagePlaybackMode, .animated)
         XCTAssertEqual(copy.dynamicTextOverflowMode, .truncate)
         XCTAssertEqual(copy.marqueeSpeed, 20, accuracy: 0.001)
@@ -148,13 +153,12 @@ final class VAPPlayerKitTests: XCTestCase {
 
     func testCommittedVAPFixturesExist() {
         XCTAssertTrue(FileManager.default.fileExists(atPath: VAPFixture.defaultPlayableURL.path))
-        XCTAssertEqual(VAPFixture.allMP4URLs.count, 22)
-        XCTAssertEqual(VAPFixture.playableURLs.count, 20)
-        XCTAssertEqual(
-            VAPFixture.allMP4URLs.map(\.lastPathComponent),
-            (1...21).map { "\($0).mp4" } + ["movie.mp4"]
-        )
-        for name in VAPFixture.invalidXMLNames {
+        let requiredNames = Set((1...21).map { "\($0).mp4" } + ["movie.mp4"])
+        let actualNames = Set(VAPFixture.allMP4URLs.map(\.lastPathComponent))
+        XCTAssertTrue(requiredNames.isSubset(of: actualNames))
+        XCTAssertEqual(actualNames.count, requiredNames.count + VAPFixture.optionalFixtureNames.count)
+        XCTAssertEqual(VAPFixture.playableURLs.count, 20 + (actualNames.contains("home.mp4") ? 1 : 0))
+        for name in VAPFixture.existingInvalidXMLNames {
             XCTAssertTrue(FileManager.default.fileExists(atPath: VAPFixture.url(name).path))
         }
     }
