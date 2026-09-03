@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2 — 2026-09-03
+
+- 修复无 `vapc` 的 legacy packed VAP 被误识别为普通 MP4 的问题。
+- 自动识别左、右、上、下四种 Alpha/RGB packed 布局，并保持 metadata 与渲染矩形一致。
+- 补充 `nationalDayEffect.mp4` 回归素材、解析测试和 iPhone 12 真机播放回归。
+
 ## 1.0.0 — 2026-09-01
 
 首个正式版本。

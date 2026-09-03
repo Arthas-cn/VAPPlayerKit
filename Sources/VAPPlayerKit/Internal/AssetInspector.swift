@@ -120,12 +120,26 @@ final class AssetInspector {
             guard approximatelyEqual(vapc.encodedVideoSize, encodedSize) else {
                 throw PlaybackError.invalidVapc(reason: "videoW/videoH do not match the video track.")
             }
-        } else if assetMode == .vap || LegacyPackedVAPDetector.isLikelyPacked(
+        } else if assetMode == .vap {
+            // The explicit legacy override preserves the historical API contract:
+            // old packed VAP defaults to the traditional left-alpha layout.
+            vapc = try await legacyDocument(
+                encodedVideoSize: encodedSize,
+                duration: durationSeconds,
+                track: videoTrack,
+                alphaMode: .left
+            )
+        } else if let alphaMode = LegacyPackedVAPDetector.detect(
             asset: asset,
             track: videoTrack,
             encodedVideoSize: encodedSize
         ) {
-            vapc = try await legacyDocument(encodedVideoSize: encodedSize, duration: durationSeconds, track: videoTrack)
+            vapc = try await legacyDocument(
+                encodedVideoSize: encodedSize,
+                duration: durationSeconds,
+                track: videoTrack,
+                alphaMode: alphaMode
+            )
         } else {
             vapc = try await ordinaryDocument(
                 encodedVideoSize: encodedSize,
@@ -180,12 +194,49 @@ final class AssetInspector {
         }
     }
 
-    /// legacy VAP 的唯一 fallback：packed 帧左右等分，左半为 Alpha、右半为 RGB。
-    private func legacyDocument(encodedVideoSize: CGSize, duration: TimeInterval, track: AVAssetTrack) async throws -> VapcDocument {
-        guard Int(encodedVideoSize.width) % 2 == 0 else {
-            throw PlaybackError.invalidVapc(reason: "Legacy VAP requires an even encoded width for the left/right split.")
+    /// legacy VAP 的 fallback：Alpha/RGB 是等尺寸 packed 区域，方向由 detector
+    /// 返回；显式 `.vap` 入口使用兼容历史素材的左 Alpha 默认值。
+    private func legacyDocument(
+        encodedVideoSize: CGSize,
+        duration: TimeInterval,
+        track: AVAssetTrack,
+        alphaMode: AlphaMode
+    ) async throws -> VapcDocument {
+        let canvas: CGSize
+        let rgbRect: CGRect
+        let alphaRect: CGRect
+        switch alphaMode {
+        case .left:
+            guard Int(encodedVideoSize.width) % 2 == 0 else {
+                throw PlaybackError.invalidVapc(reason: "Legacy VAP requires an even encoded width for the left/right split.")
+            }
+            canvas = CGSize(width: encodedVideoSize.width / 2, height: encodedVideoSize.height)
+            rgbRect = CGRect(x: canvas.width, y: 0, width: canvas.width, height: canvas.height)
+            alphaRect = CGRect(origin: .zero, size: canvas)
+        case .right:
+            guard Int(encodedVideoSize.width) % 2 == 0 else {
+                throw PlaybackError.invalidVapc(reason: "Legacy VAP requires an even encoded width for the left/right split.")
+            }
+            canvas = CGSize(width: encodedVideoSize.width / 2, height: encodedVideoSize.height)
+            rgbRect = CGRect(origin: .zero, size: canvas)
+            alphaRect = CGRect(x: canvas.width, y: 0, width: canvas.width, height: canvas.height)
+        case .top:
+            guard Int(encodedVideoSize.height) % 2 == 0 else {
+                throw PlaybackError.invalidVapc(reason: "Legacy VAP requires an even encoded height for the top/bottom split.")
+            }
+            canvas = CGSize(width: encodedVideoSize.width, height: encodedVideoSize.height / 2)
+            rgbRect = CGRect(x: 0, y: canvas.height, width: canvas.width, height: canvas.height)
+            alphaRect = CGRect(origin: .zero, size: canvas)
+        case .bottom:
+            guard Int(encodedVideoSize.height) % 2 == 0 else {
+                throw PlaybackError.invalidVapc(reason: "Legacy VAP requires an even encoded height for the top/bottom split.")
+            }
+            canvas = CGSize(width: encodedVideoSize.width, height: encodedVideoSize.height / 2)
+            rgbRect = CGRect(origin: .zero, size: canvas)
+            alphaRect = CGRect(x: 0, y: canvas.height, width: canvas.width, height: canvas.height)
+        case .none:
+            throw PlaybackError.invalidVapc(reason: "Legacy VAP requires an Alpha layout.")
         }
-        let canvas = CGSize(width: encodedVideoSize.width / 2, height: encodedVideoSize.height)
         let (nominalFPS, frameCount) = try await inferredLegacyFrameRateAndFrameCount(
             duration: duration,
             track: track
@@ -194,12 +245,12 @@ final class AssetInspector {
             assetMode: .vap,
             version: 0,
             canvasSize: canvas,
-            alphaMode: .left,
+            alphaMode: alphaMode,
             frameCount: frameCount,
             framesPerSecond: Int(nominalFPS.rounded()),
             encodedVideoSize: encodedVideoSize,
-            rgbRect: CGRect(x: canvas.width, y: 0, width: canvas.width, height: canvas.height),
-            alphaRect: CGRect(origin: .zero, size: canvas),
+            rgbRect: rgbRect,
+            alphaRect: alphaRect,
             sources: [],
             frames: [:]
         )

@@ -32,7 +32,7 @@ enum VAPFixture {
     }
 
     static var optionalFixtureNames: [String] {
-        ["home.mp4", "u1.mp4", "u2.mp4", "u3.mp4"].filter {
+        ["home.mp4", "nationalDayEffect.mp4", "u1.mp4", "u2.mp4", "u3.mp4"].filter {
             FileManager.default.fileExists(atPath: url($0).path)
         }
     }

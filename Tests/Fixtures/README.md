@@ -18,7 +18,8 @@ Bundle.main.url(
 
 `18.mp4`
 
-文件按 `1.mp4` 到 `21.mp4` 编号，另有 `movie.mp4`；`home.mp4` 是普通 H.264 MP4 回归样例，便于逐项回归。
+文件按 `1.mp4` 到 `21.mp4` 编号，另有 `movie.mp4`；`home.mp4` 是普通 H.264 MP4，
+`nationalDayEffect.mp4` 是无 `vapc` 的 legacy packed VAP，便于逐项回归。
 
 ## 清单
 
@@ -34,6 +35,7 @@ AccessDenied XML（并非 MP4），作为解析失败的负向样例。`home.mp4
 | `6, 11, 16, 18` | legacy packed VAP | legacy 布局、完整解码、真机首帧；`18` 为默认素材 |
 | `movie.mp4` | 旧版最小 VAPC + packed VAP | VAPC 缺少 `v/f` 时从媒体轨道推导帧数，并完成解码和真机首帧 |
 | `home.mp4` | 普通 H.264 MP4，无 `vapc` | 完整编码画面、无 Alpha、完整解码和真机首帧 |
+| `nationalDayEffect.mp4` | 无 `vapc` 的 legacy packed VAP | 自动识别左 Alpha/右 RGB、完整解码和真机首帧 |
 | `2, 9` | AccessDenied XML | 必须明确解析失败且不崩溃 |
 
 编码尺寸是 packed 视频物理分辨率，不是 vapc 逻辑画布。后续 parser 落地后应在测试里核对 `encodedVideoSize` 与 `canvasSize`。

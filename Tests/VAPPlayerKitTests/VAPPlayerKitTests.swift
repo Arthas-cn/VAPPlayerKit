@@ -157,7 +157,10 @@ final class VAPPlayerKitTests: XCTestCase {
         let actualNames = Set(VAPFixture.allMP4URLs.map(\.lastPathComponent))
         XCTAssertTrue(requiredNames.isSubset(of: actualNames))
         XCTAssertEqual(actualNames.count, requiredNames.count + VAPFixture.optionalFixtureNames.count)
-        XCTAssertEqual(VAPFixture.playableURLs.count, 20 + (actualNames.contains("home.mp4") ? 1 : 0))
+        XCTAssertEqual(
+            VAPFixture.playableURLs.count,
+            20 + ["home.mp4", "nationalDayEffect.mp4"].filter { actualNames.contains($0) }.count
+        )
         for name in VAPFixture.existingInvalidXMLNames {
             XCTAssertTrue(FileManager.default.fileExists(atPath: VAPFixture.url(name).path))
         }

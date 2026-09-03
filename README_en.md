@@ -60,7 +60,7 @@ CocoaPods integration of the official library requires manually adding Metal sha
 
 - Local `file://` MP4: H.264 / HEVC, system hardware decode to NV12.
 - `vapc` metadata v1 / v2; Alpha layouts Left / Right / Top / Bottom.
-- Legacy packed files without `vapc` are accepted as left-Alpha / right-RGB equal split. No `enableOldVersion` flag.
+- Legacy packed files without `vapc` automatically detect equal-sized Alpha/RGB regions on the left, right, top, or bottom. No `enableOldVersion` flag.
 - Metal compositing: YUV → RGB, packed Alpha unpack, fusion-animation mask overlays.
 - PTS media clock, bounded frame buffer, drop-late-frames. Video is not advanced by display refresh rate.
 - Controls: `prepare`, `play`, `pause`, `resume`, `stop`, `clear`.
@@ -264,7 +264,7 @@ Swift errors are `PlaybackError`; Objective-C uses `NSError`. The domain is `com
 - Local `file://` MP4
 - H.264 / HEVC
 - vapc v1 / v2 and four Alpha layouts
-- Legacy packed layout without vapc (left Alpha / right RGB)
+- Legacy packed layout without vapc (automatic left / right / top / bottom Alpha detection)
 - Fusion-animation image/text slots and in-video masks
 
 **Out of scope**

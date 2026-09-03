@@ -49,6 +49,29 @@ final class VAPPlayerKitParserTests: XCTestCase {
         XCTAssertEqual(document.frames[0]?.count, 1)
     }
 
+    func testVapcReaderRecognizesAllAlphaDirections() throws {
+        let layouts: [(AlphaMode, [Int], [Int], [Int])] = [
+            (.left, [100, 200], [0, 0, 100, 200], [100, 0, 100, 200]),
+            (.right, [100, 200], [100, 0, 100, 200], [0, 0, 100, 200]),
+            (.top, [200, 100], [0, 0, 200, 100], [0, 100, 200, 100]),
+            (.bottom, [200, 100], [0, 100, 200, 100], [0, 0, 200, 100])
+        ]
+
+        for (expectedMode, canvasSize, alphaFrame, rgbFrame) in layouts {
+            let json: [String: Any] = [
+                "info": [
+                    "v": 2, "f": 1, "w": canvasSize[0], "h": canvasSize[1], "fps": 30,
+                    "videoW": 200, "videoH": 200,
+                    "aFrame": alphaFrame, "rgbFrame": rgbFrame
+                ]
+            ]
+            let document = try VapcReader().read(
+                from: JSONSerialization.data(withJSONObject: json)
+            )
+            XCTAssertEqual(document.alphaMode, expectedMode)
+        }
+    }
+
     func testVapcReaderParsesLegacyLayoutWithTrackFrameCount() throws {
         let json: [String: Any] = [
             "info": [
@@ -207,12 +230,22 @@ final class VAPPlayerKitParserTests: XCTestCase {
 
     func testInspectorAutomaticallyUsesFullFrameForOrdinaryMP4() async throws {
         let metadata = try await AssetInspector().inspect(url: VAPFixture.url("home.mp4"))
-        XCTAssertEqual(metadata.encodedVideoSize, CGSize(width: 788, height: 788))
-        XCTAssertEqual(metadata.canvasSize, CGSize(width: 788, height: 788))
+        XCTAssertEqual(metadata.encodedVideoSize, CGSize(width: 720, height: 1280))
+        XCTAssertEqual(metadata.canvasSize, CGSize(width: 720, height: 1280))
         XCTAssertEqual(metadata.alphaMode, .none)
         XCTAssertEqual(metadata.vapVersion, 0)
         XCTAssertEqual(metadata.dynamicSources.count, 0)
         XCTAssertFalse(metadata.isVAP)
+    }
+
+    func testInspectorDetectsNationalDayLegacyPackedVAPWithoutVapc() async throws {
+        let metadata = try await AssetInspector().inspect(url: VAPFixture.url("nationalDayEffect.mp4"))
+        XCTAssertEqual(metadata.encodedVideoSize, CGSize(width: 1504, height: 320))
+        XCTAssertEqual(metadata.canvasSize, CGSize(width: 752, height: 320))
+        XCTAssertEqual(metadata.alphaMode, .left)
+        XCTAssertEqual(metadata.vapVersion, 0)
+        XCTAssertTrue(metadata.isVAP)
+        XCTAssertTrue(metadata.dynamicSources.isEmpty)
     }
 
     func testAssetModeCanOverrideAutomaticLegacyDetection() async throws {
@@ -239,7 +272,10 @@ final class VAPPlayerKitParserTests: XCTestCase {
     }
 
     func testAllCommittedMediaFixturesInspectWithoutCrash() async throws {
-        XCTAssertEqual(VAPFixture.playableURLs.count, 20 + (VAPFixture.optionalFixtureNames.contains("home.mp4") ? 1 : 0))
+        XCTAssertEqual(
+            VAPFixture.playableURLs.count,
+            20 + VAPFixture.optionalFixtureNames.filter { $0 == "home.mp4" || $0 == "nationalDayEffect.mp4" }.count
+        )
         for url in VAPFixture.playableURLs {
             let metadata = try await AssetInspector().inspect(url: url)
             XCTAssertGreaterThan(metadata.frameCount, 0, url.lastPathComponent)

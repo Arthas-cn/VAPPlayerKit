@@ -60,7 +60,7 @@ CocoaPods 集成官方库时，需要手动把 Metal shader 加进工程，否�
 
 - 本地 `file://` MP4：H.264 / HEVC，系统硬解输出 NV12。
 - `vapc` metadata v1 / v2；Alpha 布局支持 Left / Right / Top / Bottom。
-- 无 `vapc` 的旧 packed 素材按「左 Alpha、右 RGB、等宽画布」兼容，无需再调 `enableOldVersion`。
+- 无 `vapc` 的旧 packed 素材自动探测 Alpha/RGB 等尺寸区域，支持左、右、上、下四种布局，无需再调 `enableOldVersion`。
 - Metal 合成：YUV → RGB、Alpha 解包、融合动画 mask overlay。
 - PTS 媒体时钟、固定容量帧缓冲、落后丢帧；不按屏幕刷新率盲目推进视频。
 - 播放控制：`prepare`、`play`、`pause`、`resume`、`stop`、`clear`。
@@ -176,7 +176,7 @@ options.loopCount = 1;
 
 `.external` 表示组件不创建音频播放器，音画同步由宿主负责。`.disabled` 忽略音轨，但 metadata 仍可能报告 `containsAudio`。
 
-`assetMode` 默认为 `.automatic`：包含 `vapc` 的文件按 VAP 处理；没有 `vapc` 的文件会检查旧 packed VAP 的首帧特征，无法确认时按普通 MP4 的完整画面处理。普通视频的 metadata 使用完整编码尺寸，`alphaMode` 为 `.none`、`isVAP` 为 `false`。
+`assetMode` 默认为 `.automatic`：包含 `vapc` 的文件按 VAP 处理；没有 `vapc` 的文件会检查旧 packed VAP 的首帧特征，自动识别左、右、上、下 Alpha 布局，无法确认时按普通 MP4 的完整画面处理。普通视频的 metadata 使用完整编码尺寸，`alphaMode` 为 `.none`、`isVAP` 为 `false`。
 
 没有 `vapc` 且首帧特征与旧 packed VAP 冲突的极少数文件，可以显式设置 `.ordinaryVideo`；已知的旧无 `vapc` packed VAP 可以显式设置 `.vap`。组件仍只接受本地 `file://` URL，远程 URL 由宿主下载并落盘后再传入。
 
@@ -271,7 +271,7 @@ Swift 错误为 `PlaybackError`，Objective-C 为 `NSError`，域均为 `com.vap
 - 本地 `file://` MP4
 - H.264 / HEVC
 - vapc v1 / v2 与四种 Alpha 布局
-- 无 vapc 的旧 packed 布局（左 Alpha / 右 RGB）
+- 无 vapc 的旧 packed 布局（自动识别左 / 右 / 上 / 下 Alpha）
 - 融合动画中的图片、文字槽位及视频内 mask
 
 **不负责**
