@@ -32,8 +32,9 @@ enum LegacyPackedVAPDetector {
     private static let minimumLumaCorrelation = 0.65
     private static let maximumFlatAlphaVariance = 4.0
     private static let minimumFlatRGBChroma = 16.0
+    private static let maximumSampleCount = 30
 
-    /// 返回旧 packed VAP 的 Alpha 方向；`nil` 表示更像普通视频或无法解码首帧。
+    /// 返回旧 packed VAP 的 Alpha 方向；`nil` 表示更像普通视频或无法解码。
     ///
     /// 旧 VAP 没有 vapc 方向字段，但编码器可以把等尺寸的 Alpha/RGB 区域
     /// 放在左、右、上、下四个方向。方向必须和布局一起返回，不能检测成功后
@@ -59,16 +60,22 @@ enum LegacyPackedVAPDetector {
             output.alwaysCopiesSampleData = false
             guard reader.canAdd(output) else { return nil }
             reader.add(output)
-            guard reader.startReading(),
-                  let sample = output.copyNextSampleBuffer(),
-                  let pixelBuffer = CMSampleBufferGetImageBuffer(sample)
-            else { return nil }
-
-            guard CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else {
-                return nil
+            guard reader.startReading() else { return nil }
+            // A VAP animation can begin with a black/transparent frame. Inspect
+            // a bounded prefix so that a colourless first frame does not make a
+            // valid legacy asset look like an ordinary video.
+            for _ in 0..<maximumSampleCount {
+                guard let sample = output.copyNextSampleBuffer(),
+                      let pixelBuffer = CMSampleBufferGetImageBuffer(sample)
+                else { break }
+                guard CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else {
+                    continue
+                }
+                let mode = detect(pixelBuffer: pixelBuffer)
+                CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
+                if let mode { return mode }
             }
-            defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
-            return detect(pixelBuffer: pixelBuffer)
+            return nil
         } catch {
             // Automatic detection must not make an otherwise decodable ordinary MP4 fail.
             return nil

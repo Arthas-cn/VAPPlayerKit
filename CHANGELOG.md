@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.3 — 2026-09-03
+
+- 修复首帧为空黑的无 `vapc` legacy packed VAP（`nation.mp4`）被误识别为普通 MP4。
+- 在有限首段样本内识别 packed 特征，避免扫描完整视频，同时保持普通 MP4 默认使用完整画面。
+- 补充 `nation.mp4` fixture、metadata inspection、目录清单及 iPhone 12 真机回归。
+
 ## 1.0.2 — 2026-09-03
 
 - 修复无 `vapc` 的 legacy packed VAP 被误识别为普通 MP4 的问题。

@@ -36,6 +36,7 @@ AccessDenied XML（并非 MP4），作为解析失败的负向样例。`home.mp4
 | `movie.mp4` | 旧版最小 VAPC + packed VAP | VAPC 缺少 `v/f` 时从媒体轨道推导帧数，并完成解码和真机首帧 |
 | `home.mp4` | 普通 H.264 MP4，无 `vapc` | 完整编码画面、无 Alpha、完整解码和真机首帧 |
 | `nationalDayEffect.mp4` | 无 `vapc` 的 legacy packed VAP | 自动识别左 Alpha/右 RGB、完整解码和真机首帧 |
+| `nation.mp4` | 无 `vapc` 的 legacy packed VAP（首帧为空） | 跳过有限首帧窗口后自动识别左 Alpha/右 RGB、完整解码和真机首帧 |
 | `2, 9` | AccessDenied XML | 必须明确解析失败且不崩溃 |
 
 编码尺寸是 packed 视频物理分辨率，不是 vapc 逻辑画布。后续 parser 落地后应在测试里核对 `encodedVideoSize` 与 `canvasSize`。

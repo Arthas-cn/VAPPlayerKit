@@ -15,7 +15,7 @@ final class SwiftExampleUITests: XCTestCase {
         XCTAssertTrue(list.waitForExistence(timeout: 10))
         let manifest = try XCTUnwrap(list.value as? String)
         let identifiers = manifest.split(separator: ",").map(String.init)
-        let requiredIdentifiers = Set((1...21).map { String($0) } + ["movie", "home", "nationalDayEffect"])
+        let requiredIdentifiers = Set((1...21).map { String($0) } + ["movie", "home", "nationalDayEffect", "nation"])
         XCTAssertTrue(requiredIdentifiers.isSubset(of: Set(identifiers)))
         let scannedCount = identifiers.count
         XCTAssertEqual(list.cells.count, scannedCount)

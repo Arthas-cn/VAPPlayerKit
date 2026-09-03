@@ -159,7 +159,7 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertEqual(actualNames.count, requiredNames.count + VAPFixture.optionalFixtureNames.count)
         XCTAssertEqual(
             VAPFixture.playableURLs.count,
-            20 + ["home.mp4", "nationalDayEffect.mp4"].filter { actualNames.contains($0) }.count
+            20 + ["home.mp4", "nationalDayEffect.mp4", "nation.mp4"].filter { actualNames.contains($0) }.count
         )
         for name in VAPFixture.existingInvalidXMLNames {
             XCTAssertTrue(FileManager.default.fileExists(atPath: VAPFixture.url(name).path))

@@ -176,9 +176,9 @@ options.loopCount = 1;
 
 `.external` 表示组件不创建音频播放器，音画同步由宿主负责。`.disabled` 忽略音轨，但 metadata 仍可能报告 `containsAudio`。
 
-`assetMode` 默认为 `.automatic`：包含 `vapc` 的文件按 VAP 处理；没有 `vapc` 的文件会检查旧 packed VAP 的首帧特征，自动识别左、右、上、下 Alpha 布局，无法确认时按普通 MP4 的完整画面处理。普通视频的 metadata 使用完整编码尺寸，`alphaMode` 为 `.none`、`isVAP` 为 `false`。
+`assetMode` 默认为 `.automatic`：包含 `vapc` 的文件按 VAP 处理；没有 `vapc` 的文件会在有限首段样本内检查旧 packed VAP 特征，自动识别左、右、上、下 Alpha 布局，无法确认时按普通 MP4 的完整画面处理。普通视频的 metadata 使用完整编码尺寸，`alphaMode` 为 `.none`、`isVAP` 为 `false`。
 
-没有 `vapc` 且首帧特征与旧 packed VAP 冲突的极少数文件，可以显式设置 `.ordinaryVideo`；已知的旧无 `vapc` packed VAP 可以显式设置 `.vap`。组件仍只接受本地 `file://` URL，远程 URL 由宿主下载并落盘后再传入。
+没有 `vapc` 且有限首段特征与旧 packed VAP 冲突的极少数文件，可以显式设置 `.ordinaryVideo`；已知的旧无 `vapc` packed VAP 可以显式设置 `.vap`。组件仍只接受本地 `file://` URL，远程 URL 由宿主下载并落盘后再传入。
 
 ## 动态融合内容
 
