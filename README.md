@@ -9,7 +9,7 @@
 
 独立的 iOS VAP（Video Animation Player）播放组件。核心全部用 Swift 实现，通过 Swift Package Manager 分发，并提供稳定的 Objective-C 调用入口。
 
-当前稳定版本：`1.0.0`
+当前稳定版本：`1.0.4`
 
 它播放的是与 [Tencent VAP](https://github.com/Tencent/vap) 相同的本地 MP4 素材：硬件解码、透明通道合成、vapc 融合动画（用户名、头像等动态槽位）。下载、业务缓存和播放队列不属于本仓库，由宿主自己完成。
 
@@ -88,7 +88,7 @@ https://github.com/Arthas-cn/VAPPlayerKit.git
 或在 `Package.swift` 中声明：
 
 ```swift
-.package(url: "https://github.com/Arthas-cn/VAPPlayerKit.git", from: "1.0.0")
+.package(url: "https://github.com/Arthas-cn/VAPPlayerKit.git", from: "1.0.4")
 ```
 
 ```swift
@@ -176,9 +176,9 @@ options.loopCount = 1;
 
 `.external` 表示组件不创建音频播放器，音画同步由宿主负责。`.disabled` 忽略音轨，但 metadata 仍可能报告 `containsAudio`。
 
-`assetMode` 默认为 `.automatic`：包含 `vapc` 的文件按 VAP 处理；没有 `vapc` 的文件会在有限首段样本内检查旧 packed VAP 特征，自动识别左、右、上、下 Alpha 布局，无法确认时按普通 MP4 的完整画面处理。普通视频的 metadata 使用完整编码尺寸，`alphaMode` 为 `.none`、`isVAP` 为 `false`。
+`assetMode` 默认为 `.automatic`：包含 `vapc` 的文件按 VAP 处理；没有 `vapc` 的文件会严格按媒体时长的 20%、50%、70% 依次抽取一帧检查旧 packed VAP 特征，命中后立即停止并自动识别左、右、上、下 Alpha 布局，三帧都无法确认时按普通 MP4 的完整画面处理。普通视频的 metadata 使用完整编码尺寸，`alphaMode` 为 `.none`、`isVAP` 为 `false`。
 
-没有 `vapc` 且有限首段特征与旧 packed VAP 冲突的极少数文件，可以显式设置 `.ordinaryVideo`；已知的旧无 `vapc` packed VAP 可以显式设置 `.vap`。组件仍只接受本地 `file://` URL，远程 URL 由宿主下载并落盘后再传入。
+没有 `vapc` 且三点特征与旧 packed VAP 冲突的极少数文件，可以显式设置 `.ordinaryVideo`；已知的旧无 `vapc` packed VAP 可以显式设置 `.vap`。组件仍只接受本地 `file://` URL，远程 URL 由宿主下载并落盘后再传入。
 
 ## 动态融合内容
 

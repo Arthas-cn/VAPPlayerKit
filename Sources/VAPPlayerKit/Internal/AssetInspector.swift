@@ -132,7 +132,8 @@ final class AssetInspector {
         } else if let alphaMode = LegacyPackedVAPDetector.detect(
             asset: asset,
             track: videoTrack,
-            encodedVideoSize: encodedSize
+            encodedVideoSize: encodedSize,
+            duration: durationSeconds
         ) {
             vapc = try await legacyDocument(
                 encodedVideoSize: encodedSize,

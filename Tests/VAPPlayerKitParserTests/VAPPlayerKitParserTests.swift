@@ -260,6 +260,80 @@ final class VAPPlayerKitParserTests: XCTestCase {
         XCTAssertTrue(metadata.dynamicSources.isEmpty)
     }
 
+    func testLegacyProbeScheduleUsesAssetDurationInOrder() {
+        let probeTimes = LegacyPackedVAPDetector.probeTimes(for: 10.0)
+        XCTAssertEqual(probeTimes.count, 3)
+        XCTAssertEqual(probeTimes[0], 2.0, accuracy: 0.001)
+        XCTAssertEqual(probeTimes[1], 5.0, accuracy: 0.001)
+        XCTAssertEqual(probeTimes[2], 7.0, accuracy: 0.001)
+        XCTAssertTrue(LegacyPackedVAPDetector.probeTimes(for: 0).isEmpty)
+        XCTAssertTrue(LegacyPackedVAPDetector.probeTimes(for: .infinity).isEmpty)
+
+        let trackRange = CMTimeRange(
+            start: .zero,
+            duration: CMTime(seconds: 10.0, preferredTimescale: 600)
+        )
+        let readDuration = CMTime(seconds: 1.0 / 30.0, preferredTimescale: 600)
+        var sampledStarts: [Double] = []
+        let firstResult = LegacyPackedVAPDetector.firstMatchingMode(
+            duration: 10.0,
+            trackRange: trackRange,
+            readDuration: readDuration
+        ) { range in
+            sampledStarts.append(CMTimeGetSeconds(range.start))
+            return .left
+        }
+        XCTAssertEqual(firstResult, .left)
+        XCTAssertEqual(sampledStarts.count, 1)
+        XCTAssertEqual(sampledStarts[0], 2.0, accuracy: 0.001)
+
+        sampledStarts.removeAll()
+        let secondResult = LegacyPackedVAPDetector.firstMatchingMode(
+            duration: 10.0,
+            trackRange: trackRange,
+            readDuration: readDuration
+        ) { range in
+            sampledStarts.append(CMTimeGetSeconds(range.start))
+            return sampledStarts.count == 2 ? .right : nil
+        }
+        XCTAssertEqual(secondResult, .right)
+        XCTAssertEqual(sampledStarts.count, 2)
+        XCTAssertEqual(sampledStarts[1], 5.0, accuracy: 0.001)
+
+        sampledStarts.removeAll()
+        let noResult = LegacyPackedVAPDetector.firstMatchingMode(
+            duration: 10.0,
+            trackRange: trackRange,
+            readDuration: readDuration
+        ) { range in
+            sampledStarts.append(CMTimeGetSeconds(range.start))
+            return nil
+        }
+        XCTAssertNil(noResult)
+        XCTAssertEqual(sampledStarts.count, 3)
+        XCTAssertEqual(sampledStarts[2], 7.0, accuracy: 0.001)
+    }
+
+    func testInspectorDetectsMovie01LegacyPackedVAP() async throws {
+        let metadata = try await AssetInspector().inspect(url: VAPFixture.url("movie01.mp4"))
+        XCTAssertEqual(metadata.encodedVideoSize, CGSize(width: 1504, height: 1334))
+        XCTAssertEqual(metadata.canvasSize, CGSize(width: 752, height: 1334))
+        XCTAssertEqual(metadata.alphaMode, .left)
+        XCTAssertEqual(metadata.frameCount, 300)
+        XCTAssertTrue(metadata.isVAP)
+        XCTAssertTrue(metadata.dynamicSources.isEmpty)
+    }
+
+    func testInspectorDetectsMovie02LegacyPackedVAP() async throws {
+        let metadata = try await AssetInspector().inspect(url: VAPFixture.url("movie02.mp4"))
+        XCTAssertEqual(metadata.encodedVideoSize, CGSize(width: 1500, height: 1334))
+        XCTAssertEqual(metadata.canvasSize, CGSize(width: 750, height: 1334))
+        XCTAssertEqual(metadata.alphaMode, .left)
+        XCTAssertEqual(metadata.frameCount, 229)
+        XCTAssertTrue(metadata.isVAP)
+        XCTAssertTrue(metadata.dynamicSources.isEmpty)
+    }
+
     func testAssetModeCanOverrideAutomaticLegacyDetection() async throws {
         let inspector = AssetInspector()
         let ordinary = try await inspector.inspectDetails(
@@ -286,7 +360,9 @@ final class VAPPlayerKitParserTests: XCTestCase {
     func testAllCommittedMediaFixturesInspectWithoutCrash() async throws {
         XCTAssertEqual(
             VAPFixture.playableURLs.count,
-            20 + VAPFixture.optionalFixtureNames.filter { $0 == "home.mp4" || $0 == "nationalDayEffect.mp4" || $0 == "nation.mp4" }.count
+            20 + VAPFixture.optionalFixtureNames.filter {
+                ["home.mp4", "nationalDayEffect.mp4", "nation.mp4", "movie01.mp4", "movie02.mp4"].contains($0)
+            }.count
         )
         for url in VAPFixture.playableURLs {
             let metadata = try await AssetInspector().inspect(url: url)

@@ -14,7 +14,7 @@
 - 不要假设所有 `vapc.info` 都包含 `v` 和 `f`。旧版最小 VAPC 可能只保存布局字段；只有在 `v` 与 `f` **同时缺失**且媒体轨道能提供有效帧数时，才走 legacy fallback。
 - 只缺少 `v` 或只缺少 `f` 属于损坏的结构化 metadata，必须报错，不能静默降级。所有 fallback 帧数都要有限、为正且受上限保护。
 - 无 VAPC 的旧 packed VAP 使用等尺寸 Alpha/RGB 区域，Alpha 可能在左、右、上或下；自动检测必须把方向和 legacy 布局一起确定，不能检测成功后固定写死方向。显式 legacy 覆盖仍以左 Alpha 为兼容默认；不要通过任意默认帧数猜测播放长度。
-- `PlaybackOptions.assetMode` 默认是 automatic：有 `vapc` 时按 VAP；无 `vapc` 时在有限首段样本内检查 packed 特征兼容旧 VAP，无法确认时按普通视频完整画面处理。普通视频的 `canvasSize == encodedVideoSize`、`alphaMode == .none`。
+- `PlaybackOptions.assetMode` 默认是 automatic：有 `vapc` 时按 VAP；无 `vapc` 时严格按媒体时长的 20%、50%、70% 依次抽取单帧检查 packed 特征，命中即停止，三帧都未命中才按普通视频完整画面处理。普通视频的 `canvasSize == encodedVideoSize`、`alphaMode == .none`。
 - 旧无 VAPC packed VAP 与普通 MP4 在容器层面不存在绝对可区分标记；启发式误判时可显式使用 `.vap` 或 `.ordinaryVideo`。不要把 URL 扩展名当成格式标记。
 - 解析 metadata 成功不等于可以播放。修复后至少要验证 AVAssetReader/硬解、首帧上传和真机渲染；macOS 主机上的媒体解码结果不能替代 iPhone 设备结果。
 - 测试新素材时更新 fixture 清单、数量断言和 Demo UI 测试，避免目录扫描成功但回归用例漏测。

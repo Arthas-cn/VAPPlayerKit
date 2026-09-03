@@ -9,7 +9,7 @@
 
 A standalone iOS player for VAP (Video Animation Player). The core is Swift, distributed via Swift Package Manager, with a stable Objective-C facade.
 
-Current stable version: `1.0.0`
+Current stable version: `1.0.4`
 
 It plays the same local MP4 assets as [Tencent VAP](https://github.com/Tencent/vap): hardware decode, alpha compositing, and vapc fusion overlays (user names, avatars, and other dynamic slots). Networking, business caches, and play queues are out of scope — the host owns those.
 
@@ -60,7 +60,7 @@ CocoaPods integration of the official library requires manually adding Metal sha
 
 - Local `file://` MP4: H.264 / HEVC, system hardware decode to NV12.
 - `vapc` metadata v1 / v2; Alpha layouts Left / Right / Top / Bottom.
-- Legacy packed files without `vapc` automatically detect equal-sized Alpha/RGB regions on the left, right, top, or bottom. No `enableOldVersion` flag.
+- Legacy packed files without `vapc` probe one frame at 20%, 50%, and 70% of the asset duration in order, stopping at the first match, then automatically detect equal-sized Alpha/RGB regions on the left, right, top, or bottom. No `enableOldVersion` flag.
 - Metal compositing: YUV → RGB, packed Alpha unpack, fusion-animation mask overlays.
 - PTS media clock, bounded frame buffer, drop-late-frames. Video is not advanced by display refresh rate.
 - Controls: `prepare`, `play`, `pause`, `resume`, `stop`, `clear`.
@@ -88,7 +88,7 @@ https://github.com/Arthas-cn/VAPPlayerKit.git
 Or in `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/Arthas-cn/VAPPlayerKit.git", from: "1.0.0")
+.package(url: "https://github.com/Arthas-cn/VAPPlayerKit.git", from: "1.0.4")
 ```
 
 ```swift
@@ -264,7 +264,7 @@ Swift errors are `PlaybackError`; Objective-C uses `NSError`. The domain is `com
 - Local `file://` MP4
 - H.264 / HEVC
 - vapc v1 / v2 and four Alpha layouts
-- Legacy packed layout without vapc (automatic left / right / top / bottom Alpha detection)
+- Legacy packed layout without vapc (ordered 20% / 50% / 70% single-frame probes, then automatic left / right / top / bottom Alpha detection)
 - Fusion-animation image/text slots and in-video masks
 
 **Out of scope**
