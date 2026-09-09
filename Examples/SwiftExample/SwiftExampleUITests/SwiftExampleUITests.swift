@@ -15,7 +15,7 @@ final class SwiftExampleUITests: XCTestCase {
         XCTAssertTrue(list.waitForExistence(timeout: 10))
         let manifest = try XCTUnwrap(list.value as? String)
         let identifiers = manifest.split(separator: ",").map(String.init)
-        let requiredIdentifiers = Set((1...21).map { String($0) } + ["movie", "home", "nationalDayEffect", "nation", "movie01", "movie02"])
+        let requiredIdentifiers = Set((1...21).map { String($0) } + ["movie", "home", "nationalDayEffect", "nation", "movie01", "movie02", "alpha_left_moive"])
         XCTAssertTrue(requiredIdentifiers.isSubset(of: Set(identifiers)))
         let scannedCount = identifiers.count
         XCTAssertEqual(list.cells.count, scannedCount)
@@ -134,6 +134,8 @@ final class SwiftExampleUITests: XCTestCase {
             waitForLabel(app.staticTexts["batch.state"], accepted: ["BATCH PASSED"], timeout: 90),
             "At least one bundled fixture failed real-device prepare/play validation."
         )
+        let log = try XCTUnwrap(app.textViews["batch.log"].value as? String)
+        XCTAssertTrue(log.contains("alpha_left_moive: h264, 72f"), log)
     }
 
     private func tapControl(_ identifier: String) {

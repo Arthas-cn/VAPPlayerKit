@@ -123,13 +123,26 @@ final class BatchTestViewController: UIViewController, PlayerDelegate, DynamicCo
                       metadata.canvasSize.width > 0, metadata.canvasSize.height > 0 else {
                     throw BatchTestError.invalidMetadata
                 }
+                if fixture.identifier == "alpha_left_moive" {
+                    guard metadata.isVAP, metadata.alphaMode == .left,
+                          metadata.encodedVideoSize == CGSize(width: 1504, height: 448),
+                          metadata.canvasSize == CGSize(width: 752, height: 448) else {
+                        throw BatchTestError.invalidMetadata
+                    }
+                }
+                if fixture.identifier == "home" {
+                    guard !metadata.isVAP, metadata.alphaMode == .none,
+                          metadata.canvasSize == metadata.encodedVideoSize else {
+                        throw BatchTestError.invalidMetadata
+                    }
+                }
                 let initialRenderedCount = renderProbe.renderedFrameCount
                 playerView.play(url: fixture.url, options: options)
                 try await waitForPlaybackEvidence(after: initialRenderedCount, timeout: 3)
                 try await keepPlaying(for: min(1, metadata.duration))
                 playerView.stop()
                 guard currentFinishReason == .stopped else { throw BatchTestError.missingStoppedCallback }
-                append("PASS \(index + 1): \(metadata.codec), \(metadata.frameCount)f")
+                append("PASS \(index + 1) \(fixture.shortIdentifier): \(metadata.codec), \(metadata.frameCount)f")
             } catch is CancellationError {
                 return
             } catch {

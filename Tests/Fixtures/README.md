@@ -19,11 +19,11 @@ Bundle.main.url(
 `18.mp4`
 
 文件按 `1.mp4` 到 `21.mp4` 编号，另有 `movie.mp4`；`home.mp4` 是普通 H.264 MP4，
-`nationalDayEffect.mp4` 是无 `vapc` 的 legacy packed VAP，便于逐项回归。
+`nationalDayEffect.mp4` 和 `alpha_left_moive.mp4` 是无 `vapc` 的 legacy packed VAP，便于逐项回归。
 
 ## 清单
 
-`1.mp4` 到 `21.mp4` 加 `movie.mp4` 共 22 项；其中 `2.mp4` 与 `9.mp4` 是服务端返回的
+必需素材 `1.mp4` 到 `21.mp4` 加 `movie.mp4`、`alpha_left_moive.mp4` 共 23 项；其中 `2.mp4` 与 `9.mp4` 是服务端返回的
 AccessDenied XML（并非 MP4），作为解析失败的负向样例。`home.mp4` 是无 `vapc` 的普通视频，
 必须按完整画面完成 inspect、视频解码和真机首帧渲染。若目录中存在 `u1.mp4`、`u2.mp4`、
 `u3.mp4`，它们同样是 AccessDenied XML 负向样例。其余合法 VAP 也必须完成 inspect、视频解码和真机首帧渲染。
@@ -39,6 +39,7 @@ AccessDenied XML（并非 MP4），作为解析失败的负向样例。`home.mp4
 | `nation.mp4` | 无 `vapc` 的 legacy packed VAP（首帧为空） | 按 20%/50%/70% 单帧探测，自动识别左 Alpha/右 RGB、完整解码和真机首帧 |
 | `movie01.mp4` | 无 `vapc` 的 legacy packed VAP（左白色 Alpha、右侧色彩） | 按 20%/50%/70% 单帧探测，自动识别左 Alpha/右 RGB、完整解码和真机首帧 |
 | `movie02.mp4` | 无 `vapc` 的 legacy packed VAP（左白色 Alpha、右侧色彩） | 按 20%/50%/70% 单帧探测，自动识别左 Alpha/右 RGB、完整解码和真机首帧 |
+| `alpha_left_moive.mp4` | 无 `vapc` 的左 Alpha/右 RGB VAP；H.264、1504×448、24 fps、72 帧、3 秒 | 自动识别左 Alpha、逻辑画布 752×448、完整解码和真机首帧；批量真机回归同时断言分类和布局 |
 | `2, 9` | AccessDenied XML | 必须明确解析失败且不崩溃 |
 
 编码尺寸是 packed 视频物理分辨率，不是 vapc 逻辑画布。后续 parser 落地后应在测试里核对 `encodedVideoSize` 与 `canvasSize`。

@@ -9,7 +9,7 @@
 
 A standalone iOS player for VAP (Video Animation Player). The core is Swift, distributed via Swift Package Manager, with a stable Objective-C facade.
 
-Current stable version: `1.0.4`
+Current stable version: `1.0.5`
 
 It plays the same local MP4 assets as [Tencent VAP](https://github.com/Tencent/vap): hardware decode, alpha compositing, and vapc fusion overlays (user names, avatars, and other dynamic slots). Networking, business caches, and play queues are out of scope — the host owns those.
 
@@ -61,6 +61,7 @@ CocoaPods integration of the official library requires manually adding Metal sha
 - Local `file://` MP4: H.264 / HEVC, system hardware decode to NV12.
 - `vapc` metadata v1 / v2; Alpha layouts Left / Right / Top / Bottom.
 - Legacy packed files without `vapc` probe one frame at 20%, 50%, and 70% of the asset duration in order, stopping at the first match, then automatically detect equal-sized Alpha/RGB regions on the left, right, top, or bottom. No `enableOldVersion` flag.
+- Each probe checks left Alpha first, then right, top, and bottom. A unique candidate with correlated Alpha/RGB detail takes priority over weaker color or brightness evidence. Multiple strong candidates, or only multiple weak candidates, remain inconclusive. Detection samples decoded NV12 planes directly. Content detection is heuristic: use `.vap` or `.ordinaryVideo` to override it when needed.
 - Metal compositing: YUV → RGB, packed Alpha unpack, fusion-animation mask overlays.
 - PTS media clock, bounded frame buffer, drop-late-frames. Video is not advanced by display refresh rate.
 - Controls: `prepare`, `play`, `pause`, `resume`, `stop`, `clear`.
@@ -88,7 +89,7 @@ https://github.com/Arthas-cn/VAPPlayerKit.git
 Or in `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/Arthas-cn/VAPPlayerKit.git", from: "1.0.4")
+.package(url: "https://github.com/Arthas-cn/VAPPlayerKit.git", from: "1.0.5")
 ```
 
 ```swift

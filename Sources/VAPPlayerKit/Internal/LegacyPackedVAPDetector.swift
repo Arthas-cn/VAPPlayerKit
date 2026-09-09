@@ -145,14 +145,17 @@ enum LegacyPackedVAPDetector {
         reader.add(output)
         guard reader.startReading(),
               let sample = output.copyNextSampleBuffer(),
-              let pixelBuffer = CMSampleBufferGetImageBuffer(sample),
-              CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess
+              let pixelBuffer = CMSampleBufferGetImageBuffer(sample)
         else { return nil }
-        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
         return detect(pixelBuffer: pixelBuffer)
     }
 
-    private static func detect(pixelBuffer: CVPixelBuffer) -> AlphaMode? {
+    static func detect(pixelBuffer: CVPixelBuffer) -> AlphaMode? {
+        guard CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else {
+            return nil
+        }
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+
         let width = CVPixelBufferGetWidthOfPlane(pixelBuffer, 0)
         let height = CVPixelBufferGetHeightOfPlane(pixelBuffer, 0)
         guard width > 0, height > 0,
@@ -208,7 +211,16 @@ enum LegacyPackedVAPDetector {
             }
         }
 
-        let matches = splits.compactMap { split -> AlphaMode? in
+        // Spatially related Alpha/RGB detail is stronger evidence than a flat
+        // black band. In particular, letterboxing can also satisfy the fallback
+        // mean-difference test on the perpendicular axis of a genuine packed VAP.
+        // Prefer a unique correlated candidate, checking the common left layout
+        // first. Repeated grayscale content can correlate in multiple directions,
+        // so even strong evidence must be unique before we crop the frame.
+        // Accept a fallback only if there is no strong candidate and it is unique.
+        var correlatedModes: [AlphaMode] = []
+        var fallbackModes: [AlphaMode] = []
+        for split in splits {
             guard let stats = stats(
                 for: split,
                 y: y,
@@ -217,12 +229,17 @@ enum LegacyPackedVAPDetector {
                 uvBytesPerRow: uvBytesPerRow,
                 uvWidth: uvWidth,
                 uvHeight: uvHeight
-            ) else { return nil }
-            return isMatch(stats) ? split.mode : nil
+            ), isMatch(stats) else { continue }
+            if stats.correlation >= minimumLumaCorrelation {
+                correlatedModes.append(split.mode)
+            } else {
+                fallbackModes.append(split.mode)
+            }
         }
-        // If more than one orientation matches, this probe frame is ambiguous;
-        // keep the ordinary-video interpretation instead of cropping arbitrarily.
-        return matches.count == 1 ? matches[0] : nil
+        if !correlatedModes.isEmpty {
+            return correlatedModes.count == 1 ? correlatedModes.first : nil
+        }
+        return fallbackModes.count == 1 ? fallbackModes.first : nil
     }
 
     private static func stats(
@@ -356,6 +373,14 @@ enum LegacyPackedVAPDetector {
     }
 
     private static func isMatch(_ stats: SampleStats) -> Bool {
+        // A uniformly transparent (video-range black) region carries no mask
+        // detail and is indistinguishable from an ordinary video's black border.
+        // Let a later scheduled frame supply evidence instead of cropping it.
+        guard stats.correlation >= minimumLumaCorrelation
+                || stats.alphaVariance >= maximumFlatAlphaVariance || stats.alphaMean > 20 else {
+            return false
+        }
+
         // The neutral Alpha plane is the key legacy signature. Most packed files
         // also have related luma in both regions, but that is not guaranteed: the
         // Alpha mask can animate independently from the RGB artwork. A strongly

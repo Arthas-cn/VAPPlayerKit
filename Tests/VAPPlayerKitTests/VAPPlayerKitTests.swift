@@ -153,13 +153,13 @@ final class VAPPlayerKitTests: XCTestCase {
 
     func testCommittedVAPFixturesExist() {
         XCTAssertTrue(FileManager.default.fileExists(atPath: VAPFixture.defaultPlayableURL.path))
-        let requiredNames = Set((1...21).map { "\($0).mp4" } + ["movie.mp4"])
+        let requiredNames = Set((1...21).map { "\($0).mp4" } + ["movie.mp4", "alpha_left_moive.mp4"])
         let actualNames = Set(VAPFixture.allMP4URLs.map(\.lastPathComponent))
         XCTAssertTrue(requiredNames.isSubset(of: actualNames))
         XCTAssertEqual(actualNames.count, requiredNames.count + VAPFixture.optionalFixtureNames.count)
         XCTAssertEqual(
             VAPFixture.playableURLs.count,
-            20 + ["home.mp4", "nationalDayEffect.mp4", "nation.mp4", "movie01.mp4", "movie02.mp4"].filter { actualNames.contains($0) }.count
+            21 + ["home.mp4", "nationalDayEffect.mp4", "nation.mp4", "movie01.mp4", "movie02.mp4"].filter { actualNames.contains($0) }.count
         )
         for name in VAPFixture.existingInvalidXMLNames {
             XCTAssertTrue(FileManager.default.fileExists(atPath: VAPFixture.url(name).path))

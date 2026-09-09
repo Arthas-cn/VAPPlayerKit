@@ -228,6 +228,19 @@ final class VAPPlayerKitParserTests: XCTestCase {
         XCTAssertEqual(metadata.dynamicSources.count, 0)
     }
 
+    func testInspectorDetectsAlphaLeftMovieWithoutVapc() async throws {
+        let metadata = try await AssetInspector().inspect(url: VAPFixture.url("alpha_left_moive.mp4"))
+        XCTAssertEqual(metadata.encodedVideoSize, CGSize(width: 1504, height: 448))
+        XCTAssertEqual(metadata.canvasSize, CGSize(width: 752, height: 448))
+        XCTAssertEqual(metadata.alphaMode, .left)
+        XCTAssertEqual(metadata.vapVersion, 0)
+        XCTAssertEqual(metadata.codec, "h264")
+        XCTAssertEqual(metadata.frameCount, 72)
+        XCTAssertEqual(metadata.duration, 3, accuracy: 0.01)
+        XCTAssertTrue(metadata.isVAP)
+        XCTAssertTrue(metadata.dynamicSources.isEmpty)
+    }
+
     func testInspectorAutomaticallyUsesFullFrameForOrdinaryMP4() async throws {
         let metadata = try await AssetInspector().inspect(url: VAPFixture.url("home.mp4"))
         XCTAssertEqual(metadata.encodedVideoSize, CGSize(width: 720, height: 1280))
@@ -360,7 +373,7 @@ final class VAPPlayerKitParserTests: XCTestCase {
     func testAllCommittedMediaFixturesInspectWithoutCrash() async throws {
         XCTAssertEqual(
             VAPFixture.playableURLs.count,
-            20 + VAPFixture.optionalFixtureNames.filter {
+            21 + VAPFixture.optionalFixtureNames.filter {
                 ["home.mp4", "nationalDayEffect.mp4", "nation.mp4", "movie01.mp4", "movie02.mp4"].contains($0)
             }.count
         )

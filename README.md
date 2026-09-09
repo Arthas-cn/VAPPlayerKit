@@ -9,7 +9,7 @@
 
 独立的 iOS VAP（Video Animation Player）播放组件。核心全部用 Swift 实现，通过 Swift Package Manager 分发，并提供稳定的 Objective-C 调用入口。
 
-当前稳定版本：`1.0.4`
+当前稳定版本：`1.0.5`
 
 它播放的是与 [Tencent VAP](https://github.com/Tencent/vap) 相同的本地 MP4 素材：硬件解码、透明通道合成、vapc 融合动画（用户名、头像等动态槽位）。下载、业务缓存和播放队列不属于本仓库，由宿主自己完成。
 
@@ -88,7 +88,7 @@ https://github.com/Arthas-cn/VAPPlayerKit.git
 或在 `Package.swift` 中声明：
 
 ```swift
-.package(url: "https://github.com/Arthas-cn/VAPPlayerKit.git", from: "1.0.4")
+.package(url: "https://github.com/Arthas-cn/VAPPlayerKit.git", from: "1.0.5")
 ```
 
 ```swift
@@ -178,7 +178,9 @@ options.loopCount = 1;
 
 `assetMode` 默认为 `.automatic`：包含 `vapc` 的文件按 VAP 处理；没有 `vapc` 的文件会严格按媒体时长的 20%、50%、70% 依次抽取一帧检查旧 packed VAP 特征，命中后立即停止并自动识别左、右、上、下 Alpha 布局，三帧都无法确认时按普通 MP4 的完整画面处理。普通视频的 metadata 使用完整编码尺寸，`alphaMode` 为 `.none`、`isVAP` 为 `false`。
 
-没有 `vapc` 且三点特征与旧 packed VAP 冲突的极少数文件，可以显式设置 `.ordinaryVideo`；已知的旧无 `vapc` packed VAP 可以显式设置 `.vap`。组件仍只接受本地 `file://` URL，远程 URL 由宿主下载并落盘后再传入。
+每帧优先检查左 Alpha，再检查右、上、下布局。灰度 Alpha 与对应 RGB 的亮度相关性属于强证据，唯一强候选优先于仅凭色彩或亮度差的弱候选；多个强候选或仅有多个弱候选时仍视为无法确认，避免黑边干扰真正的 packed 布局，也避免裁剪重复灰度内容。识别直接采样解码后的 NV12 数据，无需缩放或转换整帧 RGB。
+
+没有 `vapc` 的内容识别属于启发式判断。普通视频被误识别时可显式设置 `.ordinaryVideo`；已知的旧无 `vapc` packed VAP 可以显式设置 `.vap`。组件仍只接受本地 `file://` URL，远程 URL 由宿主下载并落盘后再传入。
 
 ## 动态融合内容
 
