@@ -294,9 +294,9 @@ final class VAPPlayerKitParserTests: XCTestCase {
             readDuration: readDuration
         ) { range in
             sampledStarts.append(CMTimeGetSeconds(range.start))
-            return .left
+            return LegacyPackedLayout(alphaMode: .left, alphaOffset: 0)
         }
-        XCTAssertEqual(firstResult, .left)
+        XCTAssertEqual(firstResult?.alphaMode, .left)
         XCTAssertEqual(sampledStarts.count, 1)
         XCTAssertEqual(sampledStarts[0], 2.0, accuracy: 0.001)
 
@@ -307,9 +307,9 @@ final class VAPPlayerKitParserTests: XCTestCase {
             readDuration: readDuration
         ) { range in
             sampledStarts.append(CMTimeGetSeconds(range.start))
-            return sampledStarts.count == 2 ? .right : nil
+            return sampledStarts.count == 2 ? LegacyPackedLayout(alphaMode: .right, alphaOffset: 0) : nil
         }
-        XCTAssertEqual(secondResult, .right)
+        XCTAssertEqual(secondResult?.alphaMode, .right)
         XCTAssertEqual(sampledStarts.count, 2)
         XCTAssertEqual(sampledStarts[1], 5.0, accuracy: 0.001)
 
@@ -325,6 +325,22 @@ final class VAPPlayerKitParserTests: XCTestCase {
         XCTAssertNil(noResult)
         XCTAssertEqual(sampledStarts.count, 3)
         XCTAssertEqual(sampledStarts[2], 7.0, accuracy: 0.001)
+    }
+
+    func testInspectorDetectsOffsetLegacyPackedVAPWithoutVapc() async throws {
+        let inspection = try await AssetInspector().inspectDetails(url: VAPFixture.url("7878.mp4"))
+        let metadata = inspection.metadata
+        XCTAssertEqual(metadata.encodedVideoSize, CGSize(width: 1136, height: 1632))
+        XCTAssertEqual(metadata.alphaMode, .right)
+        XCTAssertEqual(metadata.canvasSize, CGSize(width: 568, height: 1270))
+        XCTAssertEqual(metadata.vapVersion, 0)
+        XCTAssertEqual(metadata.codec, "h264")
+        XCTAssertEqual(metadata.frameCount, 150)
+        XCTAssertEqual(metadata.duration, 6, accuracy: 0.01)
+        XCTAssertTrue(metadata.isVAP)
+        XCTAssertTrue(metadata.dynamicSources.isEmpty)
+        XCTAssertEqual(inspection.vapc.rgbRect, CGRect(x: 0, y: 362, width: 568, height: 1270))
+        XCTAssertEqual(inspection.vapc.alphaRect, CGRect(x: 568, y: 0, width: 568, height: 1270))
     }
 
     func testInspectorDetectsMovie01LegacyPackedVAP() async throws {
@@ -373,7 +389,7 @@ final class VAPPlayerKitParserTests: XCTestCase {
     func testAllCommittedMediaFixturesInspectWithoutCrash() async throws {
         XCTAssertEqual(
             VAPFixture.playableURLs.count,
-            21 + VAPFixture.optionalFixtureNames.filter {
+            22 + VAPFixture.optionalFixtureNames.filter {
                 ["home.mp4", "nationalDayEffect.mp4", "nation.mp4", "movie01.mp4", "movie02.mp4"].contains($0)
             }.count
         )

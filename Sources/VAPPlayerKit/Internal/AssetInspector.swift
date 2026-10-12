@@ -129,7 +129,7 @@ final class AssetInspector {
                 track: videoTrack,
                 alphaMode: .left
             )
-        } else if let alphaMode = LegacyPackedVAPDetector.detect(
+        } else if let layout = LegacyPackedVAPDetector.detect(
             asset: asset,
             track: videoTrack,
             encodedVideoSize: encodedSize,
@@ -139,7 +139,8 @@ final class AssetInspector {
                 encodedVideoSize: encodedSize,
                 duration: durationSeconds,
                 track: videoTrack,
-                alphaMode: alphaMode
+                alphaMode: layout.alphaMode,
+                alphaOffset: layout.alphaOffset
             )
         } else {
             vapc = try await ordinaryDocument(
@@ -201,8 +202,48 @@ final class AssetInspector {
         encodedVideoSize: CGSize,
         duration: TimeInterval,
         track: AVAssetTrack,
-        alphaMode: AlphaMode
+        alphaMode: AlphaMode,
+        alphaOffset: Int = 0
     ) async throws -> VapcDocument {
+        let canvas: CGSize
+        let rgbRect: CGRect
+        let alphaRect: CGRect
+        if alphaOffset != 0 {
+            (canvas, rgbRect, alphaRect) = try offsetRects(
+                encodedVideoSize: encodedVideoSize,
+                alphaMode: alphaMode,
+                alphaOffset: alphaOffset
+            )
+        } else {
+            (canvas, rgbRect, alphaRect) = try alignedRects(
+                encodedVideoSize: encodedVideoSize,
+                alphaMode: alphaMode
+            )
+        }
+        let (nominalFPS, frameCount) = try await inferredLegacyFrameRateAndFrameCount(
+            duration: duration,
+            track: track
+        )
+        return VapcDocument(
+            assetMode: .vap,
+            version: 0,
+            canvasSize: canvas,
+            alphaMode: alphaMode,
+            frameCount: frameCount,
+            framesPerSecond: Int(nominalFPS.rounded()),
+            encodedVideoSize: encodedVideoSize,
+            rgbRect: rgbRect,
+            alphaRect: alphaRect,
+            sources: [],
+            frames: [:]
+        )
+    }
+
+    /// 等尺寸左右或上下分割，Alpha 与 RGB 在分割轴上没有额外位移。
+    private func alignedRects(
+        encodedVideoSize: CGSize,
+        alphaMode: AlphaMode
+    ) throws -> (CGSize, CGRect, CGRect) {
         let canvas: CGSize
         let rgbRect: CGRect
         let alphaRect: CGRect
@@ -238,23 +279,52 @@ final class AssetInspector {
         case .none:
             throw PlaybackError.invalidVapc(reason: "Legacy VAP requires an Alpha layout.")
         }
-        let (nominalFPS, frameCount) = try await inferredLegacyFrameRateAndFrameCount(
-            duration: duration,
-            track: track
-        )
-        return VapcDocument(
-            assetMode: .vap,
-            version: 0,
-            canvasSize: canvas,
-            alphaMode: alphaMode,
-            frameCount: frameCount,
-            framesPerSecond: Int(nominalFPS.rounded()),
-            encodedVideoSize: encodedVideoSize,
-            rgbRect: rgbRect,
-            alphaRect: alphaRect,
-            sources: [],
-            frames: [:]
-        )
+        return (canvas, rgbRect, alphaRect)
+    }
+
+    /// 两半轮廓一致但沿分割轴错开时，只保留能同时取到 Alpha 和 RGB 的重叠区域。
+    private func offsetRects(
+        encodedVideoSize: CGSize,
+        alphaMode: AlphaMode,
+        alphaOffset: Int
+    ) throws -> (CGSize, CGRect, CGRect) {
+        let width = Int(encodedVideoSize.width)
+        let height = Int(encodedVideoSize.height)
+        let magnitude = abs(alphaOffset)
+        switch alphaMode {
+        case .left, .right:
+            guard width % 2 == 0, width >= 2, magnitude > 0, magnitude < height, height - magnitude >= 2 else {
+                throw PlaybackError.invalidVapc(reason: "Legacy VAP alpha offset does not fit the encoded frame.")
+            }
+            let overlap = height - magnitude
+            let half = width / 2
+            let rgbY = alphaOffset < 0 ? magnitude : 0
+            let alphaY = alphaOffset < 0 ? 0 : magnitude
+            let rgbX = alphaMode == .left ? half : 0
+            let alphaX = alphaMode == .left ? 0 : half
+            return (
+                CGSize(width: half, height: overlap),
+                CGRect(x: rgbX, y: rgbY, width: half, height: overlap),
+                CGRect(x: alphaX, y: alphaY, width: half, height: overlap)
+            )
+        case .top, .bottom:
+            guard height % 2 == 0, height >= 2, magnitude > 0, magnitude < width, width - magnitude >= 2 else {
+                throw PlaybackError.invalidVapc(reason: "Legacy VAP alpha offset does not fit the encoded frame.")
+            }
+            let overlap = width - magnitude
+            let half = height / 2
+            let rgbX = alphaOffset < 0 ? magnitude : 0
+            let alphaX = alphaOffset < 0 ? 0 : magnitude
+            let rgbY = alphaMode == .top ? half : 0
+            let alphaY = alphaMode == .top ? 0 : half
+            return (
+                CGSize(width: overlap, height: half),
+                CGRect(x: rgbX, y: rgbY, width: overlap, height: half),
+                CGRect(x: alphaX, y: alphaY, width: overlap, height: half)
+            )
+        case .none:
+            throw PlaybackError.invalidVapc(reason: "Legacy VAP requires an Alpha layout.")
+        }
     }
 
     /// 普通视频使用完整编码画面，没有 packed Alpha 或动态 VAP 槽位。

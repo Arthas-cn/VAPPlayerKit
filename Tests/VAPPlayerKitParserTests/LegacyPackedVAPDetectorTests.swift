@@ -19,7 +19,9 @@ final class LegacyPackedVAPDetectorTests: XCTestCase {
                     let luma = active ? UInt8(70 + (localX / 8 + localY / 8) % 2 * 140) : padding
                     return (luma, active && !alpha ? 170 : 128, 128)
                 }
-                XCTAssertEqual(LegacyPackedVAPDetector.detect(pixelBuffer: buffer), mode)
+                let layout = LegacyPackedVAPDetector.detect(pixelBuffer: buffer)
+                XCTAssertEqual(layout?.alphaMode, mode)
+                XCTAssertEqual(layout?.alphaOffset, 0)
             }
         }
     }
@@ -54,6 +56,20 @@ final class LegacyPackedVAPDetectorTests: XCTestCase {
             x >= 64 && y >= 64 ? (180, 180, 128) : (40, 128, 128)
         }
         XCTAssertNil(LegacyPackedVAPDetector.detect(pixelBuffer: buffer))
+    }
+
+    func testVerticallyOffsetRightAlphaIsDetected() throws {
+        let buffer = try makeBuffer { x, y in
+            let alpha = x >= 64
+            let contentY = alpha ? y + 16 : y
+            let active = contentY >= 40 && contentY < 56
+            let luma: UInt8 = active ? 180 : 16
+            let chroma: UInt8 = !alpha && active ? 170 : 128
+            return (luma, chroma, 128)
+        }
+        let layout = LegacyPackedVAPDetector.detect(pixelBuffer: buffer)
+        XCTAssertEqual(layout?.alphaMode, .right)
+        XCTAssertEqual(layout?.alphaOffset, -16)
     }
 
     func testColoredPixelsInCandidateAlphaAreRejected() throws {

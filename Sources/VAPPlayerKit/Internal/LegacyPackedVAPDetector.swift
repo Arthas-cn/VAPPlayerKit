@@ -3,9 +3,18 @@ import CoreVideo
 import CoreMedia
 import CoreGraphics
 
+/// 一次旧 packed VAP 识别结果。`alphaOffset` 为 0 表示 Alpha 与 RGB 在分割轴上对齐。
+///
+/// 负值表示 Alpha 内容相对 RGB 更靠近原点（左右分割时更靠上，上下分割时更靠左）。
+struct LegacyPackedLayout: Equatable {
+    let alphaMode: AlphaMode
+    let alphaOffset: Int
+}
+
 /// 对没有 vapc 的资源做保守的旧 packed VAP 识别。
 ///
 /// 旧 VAP 的一半通常是无色 Alpha 灰度图，另一半是 RGB；普通视频默认走完整画面。
+/// 个别素材的两半轮廓一致，但在分割轴上整体错开，对齐采样时相关性会接近 0。
 /// 这只是兼容历史文件的内容特征检测，不是格式证明。若普通视频本身恰好满足这些
 /// 特征，宿主可通过 PlaybackOptions.assetMode 强制 `.ordinaryVideo`。
 enum LegacyPackedVAPDetector {
@@ -38,6 +47,12 @@ enum LegacyPackedVAPDetector {
     private static let minimumFlatRGBChroma = 16.0
     private static let minimumRGBLumaVariance = 64.0
     private static let minimumAlphaRGBMeanDifference = 24.0
+    /// 错位至少要跨过若干像素，避免把采样噪声当成第二种布局。
+    private static let minimumAbsoluteContentShift = 8
+    /// 错位后仍须留下过半画面，避免把无关条带配成 Alpha。
+    private static let maximumShiftFraction = 0.40
+    /// 错位相关性必须明显高于零位移，避免普通画面的弱相似被裁开。
+    private static let minimumShiftCorrelationGain = 0.25
     // Probe order is intentionally fixed: A (20%), B (50%), C (70%).
     private static let detectionPercentages: [Double] = [0.20, 0.50, 0.70]
 
@@ -46,17 +61,18 @@ enum LegacyPackedVAPDetector {
         return detectionPercentages.map { duration * $0 }
     }
 
-    /// 返回旧 packed VAP 的 Alpha 方向；`nil` 表示更像普通视频或无法解码。
+    /// 返回旧 packed VAP 的 Alpha 方向和沿分割轴的内容错位；`nil` 表示更像普通视频或无法解码。
     ///
     /// 旧 VAP 没有 vapc 方向字段，但编码器可以把等尺寸的 Alpha/RGB 区域
     /// 放在左、右、上、下四个方向。方向必须和布局一起返回，不能检测成功后
-    /// 又在 inspector 里固定写死为 `.left`。
+    /// 又在 inspector 里固定写死为 `.left`。内容错位同样要带回，不能检测成功后
+    /// 仍按零位移裁切。
     static func detect(
         asset: AVAsset,
         track: AVAssetTrack,
         encodedVideoSize: CGSize,
         duration: TimeInterval
-    ) -> AlphaMode? {
+    ) -> LegacyPackedLayout? {
         let width = Int(encodedVideoSize.width)
         let height = Int(encodedVideoSize.height)
         guard width > 0, height > 0, duration.isFinite, duration > 0 else { return nil }
@@ -100,8 +116,8 @@ enum LegacyPackedVAPDetector {
         duration: TimeInterval,
         trackRange: CMTimeRange,
         readDuration: CMTime,
-        sampleDetector: (CMTimeRange) -> AlphaMode?
-    ) -> AlphaMode? {
+        sampleDetector: (CMTimeRange) -> LegacyPackedLayout?
+    ) -> LegacyPackedLayout? {
         for targetSeconds in probeTimes(for: duration) {
             // The percentage is relative to the asset timeline (which starts
             // at zero), not relative to the video track's start or duration.
@@ -130,7 +146,7 @@ enum LegacyPackedVAPDetector {
         asset: AVAsset,
         track: AVAssetTrack,
         timeRange: CMTimeRange
-    ) throws -> AlphaMode? {
+    ) throws -> LegacyPackedLayout? {
         let reader = try AVAssetReader(asset: asset)
         reader.timeRange = timeRange
         let output = AVAssetReaderTrackOutput(
@@ -150,7 +166,7 @@ enum LegacyPackedVAPDetector {
         return detect(pixelBuffer: pixelBuffer)
     }
 
-    static func detect(pixelBuffer: CVPixelBuffer) -> AlphaMode? {
+    static func detect(pixelBuffer: CVPixelBuffer) -> LegacyPackedLayout? {
         guard CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else {
             return nil
         }
@@ -237,9 +253,22 @@ enum LegacyPackedVAPDetector {
             }
         }
         if !correlatedModes.isEmpty {
-            return correlatedModes.count == 1 ? correlatedModes.first : nil
+            guard correlatedModes.count == 1, let mode = correlatedModes.first else { return nil }
+            return LegacyPackedLayout(alphaMode: mode, alphaOffset: 0)
         }
-        return fallbackModes.count == 1 ? fallbackModes.first : nil
+        if !fallbackModes.isEmpty {
+            guard fallbackModes.count == 1, let mode = fallbackModes.first else { return nil }
+            return LegacyPackedLayout(alphaMode: mode, alphaOffset: 0)
+        }
+        return shiftedLayout(
+            splits: splits,
+            y: y,
+            yBytesPerRow: yBytesPerRow,
+            uv: uv,
+            uvBytesPerRow: uvBytesPerRow,
+            uvWidth: uvWidth,
+            uvHeight: uvHeight
+        )
     }
 
     private static func stats(
@@ -249,7 +278,8 @@ enum LegacyPackedVAPDetector {
         uv: UnsafePointer<UInt8>,
         uvBytesPerRow: Int,
         uvWidth: Int,
-        uvHeight: Int
+        uvHeight: Int,
+        shift: Int = 0
     ) -> SampleStats? {
         guard split.width > 0, split.height > 0 else { return nil }
 
@@ -261,11 +291,25 @@ enum LegacyPackedVAPDetector {
         var rgbChroma = 0.0
         var rgbChromaCount = 0
         for localY in stride(from: 0, to: split.height, by: stepY) {
-            let alphaY = split.alphaOrigin.y + localY
             let rgbY = split.rgbOrigin.y + localY
             for localX in stride(from: 0, to: split.width, by: stepX) {
-                let alphaX = split.alphaOrigin.x + localX
+                var alphaX = split.alphaOrigin.x + localX
+                var alphaY = split.alphaOrigin.y + localY
                 let rgbX = split.rgbOrigin.x + localX
+                switch split.mode {
+                case .left, .right:
+                    alphaY += shift
+                case .top, .bottom:
+                    alphaX += shift
+                case .none:
+                    break
+                }
+                let shiftedAlphaX = alphaX - split.alphaOrigin.x
+                let shiftedAlphaY = alphaY - split.alphaOrigin.y
+                guard shiftedAlphaX >= 0, shiftedAlphaY >= 0,
+                      shiftedAlphaX < split.width, shiftedAlphaY < split.height else {
+                    continue
+                }
                 // NV12 chroma covers a 2x2 luma block. Do not let a block
                 // straddling the Alpha/RGB split contaminate either region's
                 // chroma statistic, especially for odd top/bottom dimensions.
@@ -340,6 +384,142 @@ enum LegacyPackedVAPDetector {
             correlation: correlation,
             alphaVariance: leftCentered / count
         )
+    }
+
+    /// 对齐采样失败后，沿分割轴寻找唯一的轮廓错位。
+    ///
+    /// 先用亮度投影定位位移，再用与对齐路径相同的色度 / 相关性规则复核重叠区域。
+    /// 多个方向同时命中时返回 nil，避免把普通画面裁开。
+    private static func shiftedLayout(
+        splits: [Split],
+        y: UnsafePointer<UInt8>,
+        yBytesPerRow: Int,
+        uv: UnsafePointer<UInt8>,
+        uvBytesPerRow: Int,
+        uvWidth: Int,
+        uvHeight: Int
+    ) -> LegacyPackedLayout? {
+        var matches: [LegacyPackedLayout] = []
+        for split in splits {
+            guard let shift = bestProfileShift(split: split, y: y, yBytesPerRow: yBytesPerRow) else {
+                continue
+            }
+            // 稀疏素材在 32×32 网格上的相关性会被黑底稀释，投影相关才是错位证据。
+            // 色度仍逐点检查，避免把带颜色的半幅当成 Alpha。
+            guard let sample = stats(
+                for: split,
+                y: y,
+                yBytesPerRow: yBytesPerRow,
+                uv: uv,
+                uvBytesPerRow: uvBytesPerRow,
+                uvWidth: uvWidth,
+                uvHeight: uvHeight,
+                shift: shift
+            ), sample.maximumAlphaChroma <= maximumNeutralChroma,
+               sample.alphaVariance >= maximumFlatAlphaVariance || sample.alphaMean > 20 else {
+                continue
+            }
+            matches.append(LegacyPackedLayout(alphaMode: split.mode, alphaOffset: shift))
+        }
+        return matches.count == 1 ? matches[0] : nil
+    }
+
+    /// 在亮度投影上找相关性最高的偶数位移。零位移由对齐路径负责。
+    private static func bestProfileShift(
+        split: Split,
+        y: UnsafePointer<UInt8>,
+        yBytesPerRow: Int
+    ) -> Int? {
+        let vertical = split.mode == .left || split.mode == .right
+        let length = vertical ? split.height : split.width
+        let cross = vertical ? split.width : split.height
+        guard length >= 32, cross > 0 else { return nil }
+        let maxShift = (Int(Double(length) * maximumShiftFraction) / 2) * 2
+        guard maxShift >= minimumAbsoluteContentShift else { return nil }
+
+        let step = max(1, cross / 48)
+        var rgb = [Double](repeating: 0, count: length)
+        var alpha = [Double](repeating: 0, count: length)
+        if vertical {
+            for row in 0..<length {
+                var rgbSum = 0.0
+                var alphaSum = 0.0
+                var column = 0
+                while column < cross {
+                    rgbSum += Double(y[(split.rgbOrigin.y + row) * yBytesPerRow + split.rgbOrigin.x + column])
+                    alphaSum += Double(y[(split.alphaOrigin.y + row) * yBytesPerRow + split.alphaOrigin.x + column])
+                    column += step
+                }
+                rgb[row] = rgbSum
+                alpha[row] = alphaSum
+            }
+        } else {
+            for column in 0..<length {
+                var rgbSum = 0.0
+                var alphaSum = 0.0
+                var row = 0
+                while row < cross {
+                    rgbSum += Double(y[(split.rgbOrigin.y + row) * yBytesPerRow + split.rgbOrigin.x + column])
+                    alphaSum += Double(y[(split.alphaOrigin.y + row) * yBytesPerRow + split.alphaOrigin.x + column])
+                    row += step
+                }
+                rgb[column] = rgbSum
+                alpha[column] = alphaSum
+            }
+        }
+
+        let zero = profileCorrelation(rgb, alpha, shift: 0)
+        var bestShift = 0
+        var best = zero
+        var shift = -maxShift
+        while shift <= maxShift {
+            if shift != 0 {
+                let value = profileCorrelation(rgb, alpha, shift: shift)
+                if value > best {
+                    best = value
+                    bestShift = shift
+                }
+            }
+            shift += 2
+        }
+        guard bestShift != 0,
+              abs(bestShift) >= minimumAbsoluteContentShift,
+              best >= minimumLumaCorrelation,
+              best - zero >= minimumShiftCorrelationGain else {
+            return nil
+        }
+        return bestShift
+    }
+
+    private static func profileCorrelation(_ rgb: [Double], _ alpha: [Double], shift: Int) -> Double {
+        let count = rgb.count
+        var pairs = 0
+        var rgbSum = 0.0
+        var alphaSum = 0.0
+        for index in 0..<count {
+            let alphaIndex = index + shift
+            guard alphaIndex >= 0, alphaIndex < count else { continue }
+            rgbSum += rgb[index]
+            alphaSum += alpha[alphaIndex]
+            pairs += 1
+        }
+        guard pairs >= 16 else { return -1 }
+        let rgbMean = rgbSum / Double(pairs)
+        let alphaMean = alphaSum / Double(pairs)
+        var rgbCentered = 0.0
+        var alphaCentered = 0.0
+        var cross = 0.0
+        for index in 0..<count {
+            let alphaIndex = index + shift
+            guard alphaIndex >= 0, alphaIndex < count else { continue }
+            let rgbDelta = rgb[index] - rgbMean
+            let alphaDelta = alpha[alphaIndex] - alphaMean
+            rgbCentered += rgbDelta * rgbDelta
+            alphaCentered += alphaDelta * alphaDelta
+            cross += rgbDelta * alphaDelta
+        }
+        guard rgbCentered > 0.001, alphaCentered > 0.001 else { return -1 }
+        return cross / sqrt(rgbCentered * alphaCentered)
     }
 
     private static func chroma(
