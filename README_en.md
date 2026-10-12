@@ -9,7 +9,7 @@
 
 A standalone iOS player for VAP (Video Animation Player). The core is Swift, distributed via Swift Package Manager, with a stable Objective-C facade.
 
-Current stable version: `1.0.5`
+Current stable version: `1.0.6`
 
 It plays the same local MP4 assets as [Tencent VAP](https://github.com/Tencent/vap): hardware decode, alpha compositing, and vapc fusion overlays (user names, avatars, and other dynamic slots). Networking, business caches, and play queues are out of scope — the host owns those.
 
@@ -89,7 +89,7 @@ https://github.com/Arthas-cn/VAPPlayerKit.git
 Or in `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/Arthas-cn/VAPPlayerKit.git", from: "1.0.5")
+.package(url: "https://github.com/Arthas-cn/VAPPlayerKit.git", from: "1.0.6")
 ```
 
 ```swift
