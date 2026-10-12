@@ -20,6 +20,7 @@ struct LegacyPackedLayout: Equatable {
 enum LegacyPackedVAPDetector {
     private struct SampleStats {
         let maximumAlphaChroma: Double
+        let maximumRGBChroma: Double
         let rgbChroma: Double
         let alphaMean: Double
         let rgbMean: Double
@@ -51,8 +52,11 @@ enum LegacyPackedVAPDetector {
     private static let minimumAbsoluteContentShift = 8
     /// 错位后仍须留下过半画面，避免把无关条带配成 Alpha。
     private static let maximumShiftFraction = 0.40
+    /// 错位路径不复用对齐采样的点相关判定，投影相关和增益因此高于对齐路径的 0.65。
+    /// 0.85 仍覆盖 7878 在 20% 处约 0.88 的轮廓相关。
+    private static let minimumShiftedLumaCorrelation = 0.85
     /// 错位相关性必须明显高于零位移，避免普通画面的弱相似被裁开。
-    private static let minimumShiftCorrelationGain = 0.25
+    private static let minimumShiftCorrelationGain = 0.40
     // Probe order is intentionally fixed: A (20%), B (50%), C (70%).
     private static let detectionPercentages: [Double] = [0.20, 0.50, 0.70]
 
@@ -290,6 +294,7 @@ enum LegacyPackedVAPDetector {
         var alphaChromas: [Double] = []
         var rgbChroma = 0.0
         var rgbChromaCount = 0
+        var maximumRGBChroma = 0.0
         for localY in stride(from: 0, to: split.height, by: stepY) {
             let rgbY = split.rgbOrigin.y + localY
             for localX in stride(from: 0, to: split.width, by: stepX) {
@@ -336,7 +341,7 @@ enum LegacyPackedVAPDetector {
                     width: split.width,
                     height: split.height
                 ) {
-                    rgbChroma += chroma(
+                    let sampleChroma = chroma(
                         atX: rgbX,
                         y: rgbY,
                         uv: uv,
@@ -344,6 +349,8 @@ enum LegacyPackedVAPDetector {
                         width: uvWidth,
                         height: uvHeight
                     )
+                    rgbChroma += sampleChroma
+                    maximumRGBChroma = max(maximumRGBChroma, sampleChroma)
                     rgbChromaCount += 1
                 }
                 values.append((
@@ -377,6 +384,7 @@ enum LegacyPackedVAPDetector {
         }
         return SampleStats(
             maximumAlphaChroma: maximumAlphaChroma,
+            maximumRGBChroma: maximumRGBChroma,
             rgbChroma: rgbChroma / Double(rgbChromaCount),
             alphaMean: leftMean,
             rgbMean: rightMean,
@@ -388,8 +396,9 @@ enum LegacyPackedVAPDetector {
 
     /// 对齐采样失败后，沿分割轴寻找唯一的轮廓错位。
     ///
-    /// 先用亮度投影定位位移，再用与对齐路径相同的色度 / 相关性规则复核重叠区域。
-    /// 多个方向同时命中时返回 nil，避免把普通画面裁开。
+    /// 错位不是格式证明。除了 Alpha 必须接近中性、RGB 必须有彩色，
+    /// 垂直错位时水平投影也要对得上，避免把半灰半彩的普通分屏裁开。
+    /// 多个方向同时命中时返回 nil。
     private static func shiftedLayout(
         splits: [Split],
         y: UnsafePointer<UInt8>,
@@ -416,7 +425,9 @@ enum LegacyPackedVAPDetector {
                 uvHeight: uvHeight,
                 shift: shift
             ), sample.maximumAlphaChroma <= maximumNeutralChroma,
-               sample.alphaVariance >= maximumFlatAlphaVariance || sample.alphaMean > 20 else {
+               sample.maximumRGBChroma >= minimumFlatRGBChroma,
+               sample.alphaVariance >= maximumFlatAlphaVariance || sample.alphaMean > 20,
+               crossAxisSupportsShift(split: split, y: y, yBytesPerRow: yBytesPerRow) else {
                 continue
             }
             matches.append(LegacyPackedLayout(alphaMode: split.mode, alphaOffset: shift))
@@ -484,11 +495,67 @@ enum LegacyPackedVAPDetector {
         }
         guard bestShift != 0,
               abs(bestShift) >= minimumAbsoluteContentShift,
-              best >= minimumLumaCorrelation,
+              best >= minimumShiftedLumaCorrelation,
               best - zero >= minimumShiftCorrelationGain else {
             return nil
         }
         return bestShift
+    }
+
+    /// 错位轴的另一维也要是同一轮廓。两侧在这一维都没有结构时不否决。
+    private static func crossAxisSupportsShift(
+        split: Split,
+        y: UnsafePointer<UInt8>,
+        yBytesPerRow: Int
+    ) -> Bool {
+        let vertical = split.mode == .left || split.mode == .right
+        let length = vertical ? split.width : split.height
+        let span = vertical ? split.height : split.width
+        guard length >= 8, span > 0 else { return false }
+        let step = max(1, span / 48)
+        var rgb = [Double](repeating: 0, count: length)
+        var alpha = [Double](repeating: 0, count: length)
+        if vertical {
+            for column in 0..<length {
+                var rgbSum = 0.0
+                var alphaSum = 0.0
+                var row = 0
+                while row < span {
+                    rgbSum += Double(y[(split.rgbOrigin.y + row) * yBytesPerRow + split.rgbOrigin.x + column])
+                    alphaSum += Double(y[(split.alphaOrigin.y + row) * yBytesPerRow + split.alphaOrigin.x + column])
+                    row += step
+                }
+                rgb[column] = rgbSum
+                alpha[column] = alphaSum
+            }
+        } else {
+            for row in 0..<length {
+                var rgbSum = 0.0
+                var alphaSum = 0.0
+                var column = 0
+                while column < span {
+                    rgbSum += Double(y[(split.rgbOrigin.y + row) * yBytesPerRow + split.rgbOrigin.x + column])
+                    alphaSum += Double(y[(split.alphaOrigin.y + row) * yBytesPerRow + split.alphaOrigin.x + column])
+                    column += step
+                }
+                rgb[row] = rgbSum
+                alpha[row] = alphaSum
+            }
+        }
+        let rgbHasDetail = profileHasDetail(rgb)
+        let alphaHasDetail = profileHasDetail(alpha)
+        if !rgbHasDetail, !alphaHasDetail {
+            return true
+        }
+        guard rgbHasDetail, alphaHasDetail else { return false }
+        return profileCorrelation(rgb, alpha, shift: 0) >= minimumLumaCorrelation
+    }
+
+    private static func profileHasDetail(_ values: [Double]) -> Bool {
+        guard !values.isEmpty else { return false }
+        let mean = values.reduce(0, +) / Double(values.count)
+        let variance = values.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(values.count)
+        return variance > 1
     }
 
     private static func profileCorrelation(_ rgb: [Double], _ alpha: [Double], shift: Int) -> Double {

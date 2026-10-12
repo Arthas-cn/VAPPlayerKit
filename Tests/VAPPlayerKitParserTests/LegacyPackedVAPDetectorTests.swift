@@ -72,6 +72,21 @@ final class LegacyPackedVAPDetectorTests: XCTestCase {
         XCTAssertEqual(layout?.alphaOffset, -16)
     }
 
+    func testShiftedLayoutWithMismatchedCrossSectionStaysOrdinary() throws {
+        let buffer = try makeBuffer { x, y in
+            let alpha = x >= 64
+            let localX = alpha ? x - 64 : x
+            let contentY = alpha ? y + 16 : y
+            let inBand = contentY >= 30 && contentY < 90
+            let inStripe = alpha ? (localX >= 40 && localX < 52) : (localX >= 8 && localX < 20)
+            let active = inBand && inStripe
+            let luma: UInt8 = active ? 180 : 16
+            let chroma: UInt8 = !alpha && active ? 170 : 128
+            return (luma, chroma, 128)
+        }
+        XCTAssertNil(LegacyPackedVAPDetector.detect(pixelBuffer: buffer))
+    }
+
     func testColoredPixelsInCandidateAlphaAreRejected() throws {
         let buffer = try makeBuffer { x, y in
             (UInt8(40 + (x % 64 + y) % 160), x < 64 ? 136 : 170, 128)
