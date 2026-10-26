@@ -21,7 +21,17 @@ public final class PlayerView: UIView {
     public var metalLayer: CAMetalLayer { presentationLayer }
 
     /// 当前正在准备、就绪或播放的会话；终态后立即退出当前角色。
-    private var session: PlaybackSession?
+    private var session: PlaybackSession? {
+        didSet {
+            // 清理闭包只捕获 session，不能反向持有正在析构的 PlayerView。
+            if let session {
+                lifetimeOwner.replaceCleanup { PlaybackRetirementOwner.retire(session) }
+            } else {
+                // 正常终态已登记独立 retirement，析构不能再接管同一会话。
+                lifetimeOwner.replaceCleanup(nil)
+            }
+        }
+    }
     /// 成功准备的输入身份，用于 prepare 后首次 play 复用。
     private var preparedURL: URL?
     /// 成功准备的不可变元数据，用于校验显式 metadata 是否同一份检查结果。
@@ -31,7 +41,9 @@ public final class PlayerView: UIView {
     /// 每次替换、停止或清空递增，迟到的异步操作不能启动新画面。
     private var operationGeneration: UInt64 = 0
     /// 由同步 play 入口拥有的准备任务，停止时请求取消并等待它退出。
-    private var playTask: Task<Void, Never>?
+    private var playTask: Task<Void, Never>? {
+        didSet { lifetimeOwner.replaceTask(playTask) }
+    }
     /// 已终态的会话排空任务；不能因当前 session=nil 就跳过它们。
     private var retirements: [SessionToken: Task<Void, Never>] = [:]
     /// 用户暂停覆盖 SDK 自带的场景恢复；系统暂停也等待显式恢复。
@@ -40,8 +52,8 @@ public final class PlayerView: UIView {
     private var isAudioInterrupted = false
     /// 已接纳首次 play 但被暂停门延迟的会话；prepare 本身不会设置它。
     private var pendingInitialStart = false
-    /// 前后台与音频中断的通知订阅，销毁时解除。
-    private var notificationTokens: [NSObjectProtocol] = []
+    /// Sendable 句柄 owner，允许非隔离析构注销通知并移交 session，而不访问 actor 可变状态。
+    private nonisolated let lifetimeOwner = PlaybackLifetimeOwner()
     /// 独立于 UIView backing layer 的 Metal 呈现层。
     private let presentationLayer = CAMetalLayer()
 
@@ -59,13 +71,8 @@ public final class PlayerView: UIView {
         observeApplicationLifecycle()
     }
 
-    /// 销毁时解除通知并移交尚未排空的 session；正常资源归还应显式等待 clearAndWait。
-    isolated deinit {
-        playTask?.cancel()
-        // 显式 clearAndWait 是正常收尾路径；未显式清理的 UIKit 宿主仍交给受管 owner 排空。
-        if let session { PlaybackRetirementOwner.retire(session) }
-        for token in notificationTokens { NotificationCenter.default.removeObserver(token) }
-    }
+    /// 显式非隔离析构规避 iOS 26.2 executor-hop 崩溃；正常归还仍须等待 clearAndWait。
+    nonisolated deinit { lifetimeOwner.cancelAndScheduleCleanup() }
 
     /// 配置透明层，显示 scale 取当前 trait，不使用全局屏幕猜测窗口。
     private func configureLayer() {
@@ -356,15 +363,15 @@ public final class PlayerView: UIView {
     private func observeApplicationLifecycle() {
         let center = NotificationCenter.default
         for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
-            notificationTokens.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            lifetimeOwner.retainObservation(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 // 订阅明确在主队列交付，必须同步关门，不能让下一条播放命令抢在失活之前。
                 MainActor.assumeIsolated { self?.handleBackground() }
             })
         }
-        notificationTokens.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+        lifetimeOwner.retainObservation(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.resumeAutomaticallyIfAllowed() }
         })
-        notificationTokens.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] notification in
+        lifetimeOwner.retainObservation(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] notification in
             let type = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
             // 主队列交付保证 actor 前置条件；同步 latch 避免通知返回后 resume 抢先执行。
             MainActor.assumeIsolated {
@@ -391,22 +398,6 @@ public final class PlayerView: UIView {
         // 停止策略完整结算并进入同一受管排空路径。
         case .stop:
             retireCurrent(reason: .stopped)
-        }
-    }
-}
-
-/// UIKit 宿主忘记显式清理时的资源兜底 owner，不将异步任务丢给 deinit 后无人管理。
-@MainActor
-private enum PlaybackRetirementOwner {
-    /// 尚未排空的会话任务；完成后移除，不无限保留已结束会话。
-    static var tasks: [SessionToken: Task<Void, Never>] = [:]
-
-    /// 接管一次会话并等待其真实清理完成；不触碰其他播放器的文件或缓存。
-    static func retire(_ session: PlaybackSession) {
-        session.stop(reason: .cancelled)
-        tasks[session.token] = Task { @MainActor in
-            await session.clearAndWait()
-            tasks[session.token] = nil
         }
     }
 }

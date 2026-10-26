@@ -186,11 +186,18 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertEqual(alpha(in: pixels, width: 8, x: 4, y: 4), 255)
     }
 
-    /// 未链接 SDWebImage 的测试宿主应安全报告动图能力不可用。
+    /// SPM 独立宿主不具备动图能力；链接 SDWebImage 的 Demo 宿主应具备能力，普通 UIImage 始终静态。
     @MainActor
-    func testSDWebImageRuntimeIsOptionalWithoutHostLink() {
+    func testSDWebImageRuntimeMatchesHostLinkage() {
+        #if SWIFT_PACKAGE
+        // 包的测试目标没有图片库依赖，必须验证缺库时的可选能力降级。
         XCTAssertFalse(SDWebImageRuntime.isAvailable)
         XCTAssertFalse(PlaybackOptions.canPlayAnimatedDynamicImages)
+        #else
+        // 应用宿主明确链接 SDWebImage，不能把真实集成环境误判成未链接的 SPM 宿主。
+        XCTAssertTrue(SDWebImageRuntime.isAvailable)
+        XCTAssertTrue(PlaybackOptions.canPlayAnimatedDynamicImages)
+        #endif
         XCTAssertFalse(SDWebImageRuntime.isAnimatedImage(UIImage()))
         XCTAssertNil(SDWebImageRuntime.makePlayer(provider: UIImage(), onFrame: { _, _ in }))
     }

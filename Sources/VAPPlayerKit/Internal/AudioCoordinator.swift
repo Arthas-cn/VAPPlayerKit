@@ -18,7 +18,19 @@ final class AudioCoordinator {
     /// 递增操作代次，防止等待旧清理的 prepare 迟到安装。
     private var generation: UInt64 = 0
     /// 当前可用或正在准备的运行；停止后立即转入退休集合。
-    private var current: AudioPlaybackRun?
+    private var current: AudioPlaybackRun? {
+        didSet {
+            // 兜底只持有当前运行，不捕获协调器，避免析构依赖引用环被打破。
+            if let current {
+                lifetimeOwner.replaceCleanup { PlaybackRetirementOwner.retire(current) }
+            } else {
+                // 正常 stop 已将运行交给 retirements，兜底不重复建立排空任务。
+                lifetimeOwner.replaceCleanup(nil)
+            }
+        }
+    }
+    /// 非隔离析构可移交的受管清理句柄，不在析构执行器直接访问 AVFoundation。
+    private nonisolated let lifetimeOwner = PlaybackLifetimeOwner()
     /// 已请求停止但尚未真正退出的运行任务，必须由 stopAndWait 等待。
     private var retirements: [UUID: Task<Void, Never>] = [:]
     /// 当前请求是否本就没有音频；此类定位立即成功，不创建驱动。
@@ -39,8 +51,8 @@ final class AudioCoordinator {
         self.sleep = sleep
     }
 
-    /// 调用方遗漏显式停止时也同步关门；严格排空仍必须由 owner 调用 stopAndWait。
-    isolated deinit { current?.stop() }
+    /// 避开旧系统的 isolated deinit runtime 路径，遗漏停止的运行由主线程登记表继续排空。
+    nonisolated deinit { lifetimeOwner.cancelAndScheduleCleanup() }
 
     /// 等待 asset 可播放及 item.readyToPlay；取消抛 cancelled，其余准备失败抛 audioFailed。
     /// 退出前等待本次已发起操作收口，不能以移除观察者代替异步任务排空。

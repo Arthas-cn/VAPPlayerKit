@@ -47,10 +47,8 @@ final class AVFoundationAudioDriver: AudioPlaybackDriver {
     private let item: AVPlayerItem
     /// 只服务本次内嵌音轨的播放器，不拥有 App 的音频会话策略。
     private let player: AVPlayer
-    /// item.status 观察所有权；停止时取消，迟到事件由已关闭邮箱拒绝。
-    private var statusObservation: NSKeyValueObservation?
-    /// 未能播到末尾的系统通知订阅。
-    private var failureObservation: (any NSObjectProtocol)?
+    /// 持有系统观察与清理闭包；非隔离析构只移交，不跨执行器操作播放器。
+    private nonisolated let lifetimeOwner = PlaybackLifetimeOwner()
     /// stop 幂等门，防止清理时重复操作系统对象。
     private var isStopped = false
     /// 音频实例静音状态；准备前设置不会触发播放。
@@ -65,7 +63,7 @@ final class AVFoundationAudioDriver: AudioPlaybackDriver {
         item = AVPlayerItem(asset: asset)
         player = AVPlayer()
         player.actionAtItemEnd = .pause
-        statusObservation = item.observe(\.status, options: [.initial, .new]) { _, change in
+        let statusObservation = item.observe(\.status, options: [.initial, .new]) { _, change in
             switch change.newValue {
             // ready 事件只是一个门，异步 asset 检查仍由上层合并。
             case .readyToPlay?:
@@ -78,18 +76,27 @@ final class AVFoundationAudioDriver: AudioPlaybackDriver {
                 break
             }
         }
-        failureObservation = NotificationCenter.default.addObserver(
+        let failureObservation = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemFailedToPlayToEndTime,
             object: item,
             queue: nil
         ) { _ in
             events(.failed(.audioFailed(reason: "Embedded audio failed before reaching its end.")))
         }
+        lifetimeOwner.retainObservation(failureObservation)
+        // 闭包独立持有系统对象，不捕获 driver；正常 stop 同步执行，遗漏停止才由主队列接管。
+        lifetimeOwner.replaceCleanup { [asset, item, player, statusObservation] in
+            player.pause()
+            statusObservation.invalidate()
+            asset.cancelLoading()
+            item.cancelPendingSeeks()
+            player.replaceCurrentItem(with: nil)
+        }
         player.replaceCurrentItem(with: item)
     }
 
-    /// 保底注销系统观察者；不在析构中创建无人持有的异步清理任务。
-    isolated deinit { stop() }
+    /// 显式非隔离析构不触发旧系统 executor-hop；系统对象保留到主队列清理执行完毕。
+    nonisolated deinit { lifetimeOwner.cancelAndScheduleCleanup() }
 
     /// 使用系统 async 属性加载；失败交由状态机统一归类和排空。
     func loadPlayable() async throws {
@@ -128,14 +135,6 @@ final class AVFoundationAudioDriver: AudioPlaybackDriver {
         // 重复停止不再次替换 item，也不会制造新的系统回调。
         guard !isStopped else { return }
         isStopped = true
-        player.pause()
-        statusObservation?.invalidate()
-        statusObservation = nil
-        // 通知订阅必须显式注销，不能只丢掉 token。
-        if let failureObservation { NotificationCenter.default.removeObserver(failureObservation) }
-        failureObservation = nil
-        asset.cancelLoading()
-        item.cancelPendingSeeks()
-        player.replaceCurrentItem(with: nil)
+        lifetimeOwner.cleanupNow()
     }
 }
