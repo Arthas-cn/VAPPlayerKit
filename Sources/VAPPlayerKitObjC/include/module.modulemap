@@ -1,5 +1,0 @@
-module VAPPlayerKitObjC {
-    umbrella header "VPKPlayerKitObjC.h"
-    export *
-    module * { export * }
-}

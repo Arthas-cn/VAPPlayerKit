@@ -1,43 +1,81 @@
 import UIKit
 import VAPPlayerKit
 
+/// UIKit 播放实验室；保留既有控制入口与测试标识，用 v2 值配置驱动内核。
+@MainActor
 final class PlaybackDetailViewController: UIViewController {
-    private let fixture: VAPFixture
-    private var animatedGiftIndex: Int
-    private var stillGiftIndex: Int
-    private let playerView = PlayerView()
-    private let diagnostics = PlaybackDiagnostics()
-    private let scrollView = UIScrollView()
-    private let contentStack = UIStackView()
-    private let previewCard = UIView()
-    private let stateLabel = InsetsLabel()
-    private let metadataLabel = UILabel()
-    private let metricsLabel = UILabel()
-    private let consoleView = UITextView()
-    private let contentModeControl = UISegmentedControl(items: ["Fit", "Fill", "Stretch"])
-    private let loopControl = UISegmentedControl(items: ["1×", "2×", "∞"])
-    private let audioControl = UISegmentedControl(items: ["静音", "内嵌", "外部", "禁用"])
-    private let backgroundControl = UISegmentedControl(items: ["挂起", "停止"])
-    private let dynamicImageControl = UISegmentedControl(items: ["静图", "动图"])
-    private let textOverflowControl = UISegmentedControl(items: ["截断", "跑马灯"])
-    private let marqueeSpeedControl = UISegmentedControl(items: ["20", "40", "80"])
-    private let marqueeDelayControl = UISegmentedControl(items: ["0s", "0.6s", "1.2s"])
-    private let previousGiftButton = UIButton(type: .system)
-    private let nextGiftButton = UIButton(type: .system)
-    private let giftNameLabel = UILabel()
-    private let previousTextButton = UIButton(type: .system)
-    private let nextTextButton = UIButton(type: .system)
-    private let textSampleLabel = UILabel()
-    private let clearsSwitch = UISwitch()
-    private var operationTask: Task<Void, Never>?
-    private var currentMetadata: AssetMetadata?
-    private var isAutomatedRun = false
-    private var currentDidStart = false
-    private var currentFailure: Error?
-    private var currentFinishReason: FinishReason?
-    private var hasAutoPlayed = false
-    private var replacementTextIndex = 0
+    /// 当前页面独占的本地样本，页面内切换配置不会改变源文件。
+    let fixture: VAPFixture
+    /// 动态图替换样本索引，仅在动态图模式使用。
+    var animatedGiftIndex: Int
+    /// 静态图替换样本索引，仅在静图模式使用。
+    var stillGiftIndex: Int
+    /// 页面唯一的 UIKit 播放内核，不与列表预览共用。
+    let playerView = PlayerView()
+    /// 线程安全指标收集器，负责摘要和报告。
+    let diagnostics = PlaybackDiagnostics()
+    /// 承载实验控制区，适应较小屏幕。
+    let scrollView = UIScrollView()
+    /// 按顺序排列预览、参数、控制和诊断卡片。
+    let contentStack = UIStackView()
+    /// 播放器与棋盘背景的共同容器。
+    let previewCard = UIView()
+    /// 当前播放状态徽标，同时保留 UI 测试定位。
+    let stateLabel = InsetsLabel()
+    /// 已解析的逻辑画布、编码帧与槽位摘要。
+    let metadataLabel = UILabel()
+    /// 累计解码、渲染与丢帧摘要。
+    let metricsLabel = UILabel()
+    /// 滚动显示最近诊断时间线。
+    let consoleView = UITextView()
+    /// 选择 fit、fill 或 stretch。
+    let contentModeControl = UISegmentedControl(items: ["Fit", "Fill", "Stretch"])
+    /// 选择总次数 1、2 或无限循环。
+    let loopControl = UISegmentedControl(items: ["1×", "2×", "∞"])
+    /// 选择内核音频资源策略。
+    let audioControl = UISegmentedControl(items: ["静音", "内嵌", "外部", "禁用"])
+    /// 选择后台挂起或停止行为。
+    let backgroundControl = UISegmentedControl(items: ["挂起", "停止"])
+    /// 选择动态槽使用静图首帧或动画。
+    let dynamicImageControl = UISegmentedControl(items: ["静图", "动图"])
+    /// 选择超宽动态文字的截断或跑马灯。
+    let textOverflowControl = UISegmentedControl(items: ["截断", "跑马灯"])
+    /// 选择跑马灯速度，单位 pt/s。
+    let marqueeSpeedControl = UISegmentedControl(items: ["20", "40", "80"])
+    /// 选择每次跑马灯起步等待秒数。
+    let marqueeDelayControl = UISegmentedControl(items: ["0s", "0.6s", "1.2s"])
+    /// 切换到前一个图片替换样本。
+    let previousGiftButton = UIButton(type: .system)
+    /// 切换到后一个图片替换样本。
+    let nextGiftButton = UIButton(type: .system)
+    /// 显示当前图片样本名称和类型。
+    let giftNameLabel = UILabel()
+    /// 切换到前一段文字样本。
+    let previousTextButton = UIButton(type: .system)
+    /// 切换到后一段文字样本。
+    let nextTextButton = UIButton(type: .system)
+    /// 显示当前文字样本摘要。
+    let textSampleLabel = UILabel()
+    /// 控制自然完成后是否清除最后画面。
+    let clearsSwitch = UISwitch()
+    /// 当前 prepare 或冒烟流程任务，离页时取消。
+    var operationTask: Task<Void, Never>?
+    /// 最近成功解析的元数据；nil 表示尚未成功准备。
+    var currentMetadata: AssetMetadata?
+    /// 是否正在执行页面内冒烟流程。
+    var isAutomatedRun = false
+    /// 本轮是否已收到内核运行回调。
+    var currentDidStart = false
+    /// 本轮不可恢复错误；nil 表示尚无错误。
+    var currentFailure: Error?
+    /// 本轮终态原因，供停止回调验证。
+    var currentFinishReason: FinishReason?
+    /// 确保首次进入页面只自动播放一次。
+    var hasAutoPlayed = false
+    /// 当前动态文字样本索引。
+    var replacementTextIndex = 0
 
+    /// 创建指定样本的实验页面，并选择初始图片替换样本。
     init(fixture: VAPFixture) {
         self.fixture = fixture
         self.animatedGiftIndex = GiftCatalog.randomGiftIndex(policy: .animatedOnly)
@@ -45,12 +83,15 @@ final class PlaybackDetailViewController: UIViewController {
         super.init(nibName: nil, bundle: nil)
     }
 
+    /// 仅支持程序化页面，不接受 storyboard 构造。
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    deinit {
+    /// 只取消已拥有的任务；底层资源由 PlayerView 的受管清理兜底。
+    isolated deinit {
         operationTask?.cancel()
     }
 
+    /// 组装页面、播放器与诊断，不在初始化器中做资源准备。
     override func viewDidLoad() {
         super.viewDidLoad()
         configureNavigation()
@@ -65,8 +106,10 @@ final class PlaybackDetailViewController: UIViewController {
         )
     }
 
+    /// 首次页面真正出现后启动样本，避免普通重现重复播放。
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        // 页面返回展示不能重新播放正在保留的请求。
         guard !hasAutoPlayed else { return }
         hasAutoPlayed = true
         stateLabel.text = "PREPARING"
@@ -74,8 +117,10 @@ final class PlaybackDetailViewController: UIViewController {
         playerView.play(url: fixture.url, options: currentOptions())
     }
 
+    /// 返回或关闭页面时停止音画、取消操作并保存报告。
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        // 仅真正退出才结束会话，弹出分享面板不误停播放。
         if isMovingFromParent || navigationController?.isBeingDismissed == true {
             operationTask?.cancel()
             playerView.stop()
@@ -83,272 +128,30 @@ final class PlaybackDetailViewController: UIViewController {
         }
     }
 
-    private func configureNavigation() {
-        title = "Playback Lab"
-        navigationItem.largeTitleDisplayMode = .never
-        view.backgroundColor = UIColor(red: 0.03, green: 0.04, blue: 0.065, alpha: 1)
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "square.and.arrow.up"),
-            style: .plain,
-            target: self,
-            action: #selector(shareReport)
-        )
-        navigationItem.rightBarButtonItem?.accessibilityIdentifier = "detail.shareReport"
-    }
-
-    private func configureHierarchy() {
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.alwaysBounceVertical = true
-        contentStack.translatesAutoresizingMaskIntoConstraints = false
-        contentStack.axis = .vertical
-        contentStack.spacing = 16
-        view.addSubview(scrollView)
-        scrollView.addSubview(contentStack)
-        NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            contentStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 14),
-            contentStack.leadingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.leadingAnchor, constant: 16),
-            contentStack.trailingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.trailingAnchor, constant: -16),
-            contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -28)
-        ])
-
-        configurePreviewCard()
-        contentStack.addArrangedSubview(makeAssetHeader())
-        contentStack.addArrangedSubview(previewCard)
-        contentStack.addArrangedSubview(makeOptionsCard())
-        contentStack.addArrangedSubview(makeGiftSwitcherCard())
-        contentStack.addArrangedSubview(makeTextSampleCard())
-        contentStack.addArrangedSubview(makeControlsCard())
-        contentStack.addArrangedSubview(makeDiagnosticsCard())
-    }
-
-    private func configurePreviewCard() {
-        previewCard.backgroundColor = UIColor(red: 0.07, green: 0.08, blue: 0.12, alpha: 1)
-        previewCard.layer.cornerRadius = 22
-        previewCard.layer.cornerCurve = .continuous
-        previewCard.clipsToBounds = true
-        previewCard.heightAnchor.constraint(equalToConstant: 360).isActive = true
-
-        let checker = CheckerboardView()
-        checker.translatesAutoresizingMaskIntoConstraints = false
-        playerView.translatesAutoresizingMaskIntoConstraints = false
-        playerView.accessibilityIdentifier = "detail.player"
-        stateLabel.translatesAutoresizingMaskIntoConstraints = false
-        stateLabel.text = "IDLE"
-        stateLabel.font = .monospacedSystemFont(ofSize: 11, weight: .bold)
-        stateLabel.textColor = .white
-        stateLabel.backgroundColor = UIColor.black.withAlphaComponent(0.62)
-        stateLabel.layer.cornerRadius = 9
-        stateLabel.clipsToBounds = true
-        stateLabel.accessibilityIdentifier = "detail.state"
-        previewCard.addSubview(checker)
-        previewCard.addSubview(playerView)
-        previewCard.addSubview(stateLabel)
-        NSLayoutConstraint.activate([
-            checker.topAnchor.constraint(equalTo: previewCard.topAnchor),
-            checker.leadingAnchor.constraint(equalTo: previewCard.leadingAnchor),
-            checker.trailingAnchor.constraint(equalTo: previewCard.trailingAnchor),
-            checker.bottomAnchor.constraint(equalTo: previewCard.bottomAnchor),
-            playerView.topAnchor.constraint(equalTo: previewCard.topAnchor),
-            playerView.leadingAnchor.constraint(equalTo: previewCard.leadingAnchor),
-            playerView.trailingAnchor.constraint(equalTo: previewCard.trailingAnchor),
-            playerView.bottomAnchor.constraint(equalTo: previewCard.bottomAnchor),
-            stateLabel.topAnchor.constraint(equalTo: previewCard.topAnchor, constant: 12),
-            stateLabel.leadingAnchor.constraint(equalTo: previewCard.leadingAnchor, constant: 12)
-        ])
-    }
-
-    private func makeAssetHeader() -> UIView {
-        let eyebrow = UILabel()
-        eyebrow.text = fixture.looksLikeMedia ? "LOCAL MEDIA FIXTURE" : "NEGATIVE FIXTURE"
-        eyebrow.font = .systemFont(ofSize: 11, weight: .bold)
-        eyebrow.textColor = UIColor(red: 0.42, green: 0.82, blue: 1, alpha: 1)
-        let name = UILabel()
-        name.text = fixture.shortIdentifier
-        name.font = .monospacedSystemFont(ofSize: 19, weight: .semibold)
-        name.textColor = .white
-        name.adjustsFontSizeToFitWidth = true
-        let detail = UILabel()
-        detail.text = "\(fixture.formattedSize) · 本地文件 · 已自动播放，可用下方控制测试"
-        detail.font = .systemFont(ofSize: 13)
-        detail.textColor = UIColor(white: 0.62, alpha: 1)
-        let stack = UIStackView(arrangedSubviews: [eyebrow, name, detail])
-        stack.axis = .vertical
-        stack.spacing = 5
-        return stack
-    }
-
-    private func makeOptionsCard() -> UIView {
-        contentModeControl.selectedSegmentIndex = 0
-        loopControl.selectedSegmentIndex = 2
-        audioControl.selectedSegmentIndex = 1
-        backgroundControl.selectedSegmentIndex = 0
-        dynamicImageControl.selectedSegmentIndex = 1
-        textOverflowControl.selectedSegmentIndex = 1
-        marqueeSpeedControl.selectedSegmentIndex = 2
-        marqueeDelayControl.selectedSegmentIndex = 1
-        clearsSwitch.isOn = true
-        [
-            contentModeControl,
-            loopControl,
-            audioControl,
-            backgroundControl,
-            dynamicImageControl,
-            textOverflowControl,
-            marqueeSpeedControl,
-            marqueeDelayControl
-        ].forEach {
-            $0.selectedSegmentTintColor = UIColor(red: 0.15, green: 0.43, blue: 0.62, alpha: 1)
-        }
-        contentModeControl.accessibilityIdentifier = "detail.contentMode"
-        loopControl.accessibilityIdentifier = "detail.loopCount"
-        audioControl.accessibilityIdentifier = "detail.audioMode"
-        backgroundControl.accessibilityIdentifier = "detail.backgroundPolicy"
-        dynamicImageControl.accessibilityIdentifier = "detail.dynamicImagePlayback"
-        textOverflowControl.accessibilityIdentifier = "detail.textOverflow"
-        marqueeSpeedControl.accessibilityIdentifier = "detail.marqueeSpeed"
-        marqueeDelayControl.accessibilityIdentifier = "detail.marqueeDelay"
-        clearsSwitch.accessibilityIdentifier = "detail.clearsAfterFinish"
-        dynamicImageControl.addTarget(self, action: #selector(dynamicImageModeChanged), for: .valueChanged)
-        return makeCard(title: "播放参数", accessory: "切换参数需要点击播放才生效", rows: [
-            makeOptionRow(title: "画布模式", control: contentModeControl),
-            makeOptionRow(title: "循环次数", control: loopControl),
-            makeOptionRow(title: "音频策略", control: audioControl),
-            makeOptionRow(title: "离屏策略", control: backgroundControl),
-            makeOptionRow(title: "槽位图片", control: dynamicImageControl),
-            makeOptionRow(title: "文字溢出", control: textOverflowControl),
-            makeOptionRow(title: "跑马灯速度", control: marqueeSpeedControl),
-            makeOptionRow(title: "起步停顿", control: marqueeDelayControl),
-            makeOptionRow(title: "结束清屏", control: clearsSwitch)
-        ])
-    }
-
-    private func makeGiftSwitcherCard() -> UIView {
-        previousGiftButton.configuration = giftSwitcherConfiguration("上一张", icon: "chevron.left")
-        nextGiftButton.configuration = giftSwitcherConfiguration("下一张", icon: "chevron.right")
-        previousGiftButton.accessibilityIdentifier = "detail.animated.previous"
-        nextGiftButton.accessibilityIdentifier = "detail.animated.next"
-        previousGiftButton.addTarget(self, action: #selector(previousGiftTapped), for: .touchUpInside)
-        nextGiftButton.addTarget(self, action: #selector(nextGiftTapped), for: .touchUpInside)
-        giftNameLabel.font = .monospacedSystemFont(ofSize: 13, weight: .semibold)
-        giftNameLabel.textColor = UIColor(red: 0.54, green: 0.9, blue: 0.75, alpha: 1)
-        giftNameLabel.textAlignment = .center
-        giftNameLabel.lineBreakMode = .byTruncatingMiddle
-        giftNameLabel.accessibilityIdentifier = "detail.animated.name"
-        refreshGiftName()
-        let row = UIStackView(arrangedSubviews: [previousGiftButton, giftNameLabel, nextGiftButton])
-        row.axis = .horizontal
-        row.alignment = .center
-        row.spacing = 10
-        giftNameLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        previousGiftButton.setContentHuggingPriority(.required, for: .horizontal)
-        nextGiftButton.setContentHuggingPriority(.required, for: .horizontal)
-        return makeCard(title: "切换图片", rows: [row])
-    }
-
-    private func makeTextSampleCard() -> UIView {
-        previousTextButton.configuration = giftSwitcherConfiguration("上一组", icon: "chevron.left")
-        nextTextButton.configuration = giftSwitcherConfiguration("下一组", icon: "chevron.right")
-        previousTextButton.accessibilityIdentifier = "detail.text.previous"
-        nextTextButton.accessibilityIdentifier = "detail.text.next"
-        previousTextButton.addTarget(self, action: #selector(previousTextTapped), for: .touchUpInside)
-        nextTextButton.addTarget(self, action: #selector(nextTextTapped), for: .touchUpInside)
-        textSampleLabel.font = .monospacedSystemFont(ofSize: 13, weight: .semibold)
-        textSampleLabel.textColor = UIColor(red: 0.54, green: 0.9, blue: 0.75, alpha: 1)
-        textSampleLabel.textAlignment = .center
-        textSampleLabel.lineBreakMode = .byTruncatingMiddle
-        textSampleLabel.accessibilityIdentifier = "detail.text.name"
-        refreshTextSampleName()
-        let row = UIStackView(arrangedSubviews: [previousTextButton, textSampleLabel, nextTextButton])
-        row.axis = .horizontal
-        row.alignment = .center
-        row.spacing = 10
-        textSampleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        previousTextButton.setContentHuggingPriority(.required, for: .horizontal)
-        nextTextButton.setContentHuggingPriority(.required, for: .horizontal)
-        return makeCard(title: "切换替换文字", rows: [row])
-    }
-
-    private func giftSwitcherConfiguration(_ title: String, icon: String) -> UIButton.Configuration {
-        var configuration = UIButton.Configuration.tinted()
-        configuration.title = title
-        configuration.image = UIImage(systemName: icon)
-        configuration.imagePadding = 4
-        configuration.cornerStyle = .medium
-        configuration.baseBackgroundColor = UIColor(red: 0.12, green: 0.48, blue: 0.72, alpha: 1)
-        configuration.baseForegroundColor = .white
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10)
-        return configuration
-    }
-
-    private func refreshGiftName() {
-        giftNameLabel.text = usesAnimatedGift
-            ? GiftCatalog.animatedGiftDisplayName(at: animatedGiftIndex)
-            : GiftCatalog.stillGiftDisplayName(at: stillGiftIndex)
-    }
-
-    private func refreshTextSampleName() {
-        textSampleLabel.text = GiftCatalog.replacementSampleDisplayName(at: replacementTextIndex)
-    }
-
-    private func makeControlsCard() -> UIView {
-        let prepare = makeButton("Prepare", icon: "doc.text.magnifyingglass", action: #selector(prepareTapped), id: "detail.prepare")
-        let play = makeButton("Play", icon: "play.fill", action: #selector(playTapped), id: "detail.play", prominent: true)
-        let pause = makeButton("Pause", icon: "pause.fill", action: #selector(pauseTapped), id: "detail.pause")
-        let resume = makeButton("Resume", icon: "forward.fill", action: #selector(resumeTapped), id: "detail.resume")
-        let stop = makeButton("Stop", icon: "stop.fill", action: #selector(stopTapped), id: "detail.stop")
-        let clear = makeButton("Clear", icon: "trash", action: #selector(clearTapped), id: "detail.clear")
-        let rows = [
-            makeButtonRow([prepare, play]),
-            makeButtonRow([pause, resume]),
-            makeButtonRow([stop, clear])
-        ]
-        let auto = makeButton("运行自动真机冒烟测试", icon: "checkmark.seal.fill", action: #selector(autoTestTapped), id: "detail.autoTest", prominent: true)
-        return makeCard(title: "控制矩阵", rows: rows + [auto])
-    }
-
-    private func makeDiagnosticsCard() -> UIView {
-        metadataLabel.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-        metadataLabel.textColor = UIColor(white: 0.78, alpha: 1)
-        metadataLabel.numberOfLines = 0
-        metadataLabel.text = "Metadata 尚未解析"
-        metadataLabel.accessibilityIdentifier = "detail.metadata"
-        metricsLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
-        metricsLabel.textColor = UIColor(red: 0.52, green: 0.91, blue: 0.73, alpha: 1)
-        metricsLabel.numberOfLines = 0
-        metricsLabel.text = "Decoded 0  Rendered 0  Dropped 0"
-        metricsLabel.accessibilityIdentifier = "detail.metrics"
-        consoleView.backgroundColor = UIColor(red: 0.025, green: 0.03, blue: 0.045, alpha: 1)
-        consoleView.textColor = UIColor(white: 0.72, alpha: 1)
-        consoleView.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
-        consoleView.isEditable = false
-        consoleView.layer.cornerRadius = 12
-        consoleView.heightAnchor.constraint(equalToConstant: 220).isActive = true
-        consoleView.accessibilityIdentifier = "detail.console"
-        return makeCard(title: "实时诊断", rows: [metadataLabel, metricsLabel, consoleView])
-    }
-
-    private func configurePlayer() {
+    /// 绑定本页面 delegate、provider 与线程安全指标收集器。
+    func configurePlayer() {
         playerView.delegate = self
         playerView.dynamicContentProvider = self
         playerView.metricsSink = diagnostics
     }
 
-    private func bindDiagnostics() {
+    /// 把纯值诊断快照应用到主线程 UI，闭包不强持有页面。
+    func bindDiagnostics() {
         diagnostics.onUpdate = { [weak self] snapshot in
             self?.metricsLabel.text = snapshot.summary
             self?.consoleView.text = snapshot.log
+            // 空日志没有可滚动的末尾范围，页面释放后也不触碰 UI。
             if let console = self?.consoleView, !snapshot.log.isEmpty {
                 console.scrollRangeToVisible(NSRange(location: max(0, snapshot.log.utf16.count - 1), length: 1))
             }
         }
     }
 
-    private func currentOptions(contentMode: UIView.ContentMode? = nil, audioMode: AudioMode? = nil) -> PlaybackOptions {
-        let options = PlaybackOptions.defaultOptions
+    /// 从控件构造独立的 v2 配置值，历史样本显式采用 automatic。
+    func currentOptions(contentMode: UIView.ContentMode? = nil, audioMode: AudioMode? = nil) -> PlaybackOptions {
+        var options = PlaybackOptions()
+        // 历史 fixture 同时包含普通视频与旧 packed VAP，显式保留自动识别测试路径。
+        options.assetMode = .automatic
         options.contentMode = contentMode ?? [.scaleAspectFit, .scaleAspectFill, .scaleToFill][contentModeControl.selectedSegmentIndex]
         options.loopCount = [1, 2, 0][loopControl.selectedSegmentIndex]
         options.audioMode = audioMode ?? [.muted, .embedded, .external, .disabled][audioControl.selectedSegmentIndex]
@@ -361,55 +164,68 @@ final class PlaybackDetailViewController: UIViewController {
         return options
     }
 
-    @objc private func prepareTapped() {
+    /// 取消上一操作并登记新的异步准备任务。
+    @objc func prepareTapped() {
         cancelOperation()
         operationTask = Task { @MainActor [weak self] in await self?.prepareCurrent() }
     }
 
-    @objc private func playTapped() {
+    /// 使用当前配置创建新播放操作。
+    @objc func playTapped() {
         cancelOperation()
         stateLabel.text = "PREPARING"
         diagnostics.append("ACTION", "play")
         playerView.play(url: fixture.url, options: currentOptions())
     }
 
-    @objc private func previousGiftTapped() {
+    /// 切换到前一个图片替换样本并重播。
+    @objc func previousGiftTapped() {
         cycleGift(by: -1)
     }
 
-    @objc private func nextGiftTapped() {
+    /// 切换到后一个图片替换样本并重播。
+    @objc func nextGiftTapped() {
         cycleGift(by: 1)
     }
 
-    @objc private func previousTextTapped() {
+    /// 切换到前一个文字样本并重播。
+    @objc func previousTextTapped() {
         cycleReplacementText(by: -1)
     }
 
-    @objc private func nextTextTapped() {
+    /// 切换到后一个文字样本并重播。
+    @objc func nextTextTapped() {
         cycleReplacementText(by: 1)
     }
 
-    @objc private func dynamicImageModeChanged() {
+    /// 切换静图或动图策略后刷新对应样本名称。
+    @objc func dynamicImageModeChanged() {
         refreshGiftName()
     }
 
-    private var usesAnimatedGift: Bool {
+    /// 当前控件是否选择动态图替换。
+    var usesAnimatedGift: Bool {
         dynamicImageControl.selectedSegmentIndex == 1
     }
 
-    private var currentImagePolicy: GiftCatalog.ImagePolicy {
+    /// 当前图片模式对应的素材筛选策略。
+    var currentImagePolicy: GiftCatalog.ImagePolicy {
         usesAnimatedGift ? .animatedOnly : .stillOnly
     }
 
-    private var currentImageIndex: Int {
+    /// 当前模式对应的独立样本索引。
+    var currentImageIndex: Int {
         usesAnimatedGift ? animatedGiftIndex : stillGiftIndex
     }
 
-    private func cycleGift(by delta: Int) {
+    /// 循环切换当前类别的图片索引，再以新内容重播。
+    func cycleGift(by delta: Int) {
+        // 两类样本分别维护索引，切换模式不串用边界。
         if usesAnimatedGift {
             let count = max(GiftCatalog.animatedGiftCount(), 1)
             animatedGiftIndex = (animatedGiftIndex + delta % count + count) % count
         } else {
+            // 静图索引只在静图资源集合内循环。
             let count = max(GiftCatalog.stillGiftCount(), 1)
             stillGiftIndex = (stillGiftIndex + delta % count + count) % count
         }
@@ -423,7 +239,8 @@ final class PlaybackDetailViewController: UIViewController {
         playerView.play(url: fixture.url, options: currentOptions())
     }
 
-    private func cycleReplacementText(by delta: Int) {
+    /// 循环切换文字样本，再重新准备应用替换。
+    func cycleReplacementText(by delta: Int) {
         let count = GiftCatalog.replacementSampleCount()
         replacementTextIndex = (replacementTextIndex + delta % count + count) % count
         refreshTextSampleName()
@@ -433,150 +250,72 @@ final class PlaybackDetailViewController: UIViewController {
         playerView.play(url: fixture.url, options: currentOptions())
     }
 
-    @objc private func pauseTapped() {
+    /// 暂停当前时间轴并更新诊断。
+    @objc func pauseTapped() {
         playerView.pause()
         stateLabel.text = "PAUSED"
         diagnostics.append("ACTION", "pause")
     }
 
-    @objc private func resumeTapped() {
+    /// 显式恢复当前进度，不重新创建播放请求。
+    @objc func resumeTapped() {
         playerView.resume()
         stateLabel.text = "PLAYING"
         diagnostics.append("ACTION", "resume")
     }
 
-    @objc private func stopTapped() {
+    /// 取消页面异步操作并停止当前会话。
+    @objc func stopTapped() {
         cancelOperation()
         playerView.stop()
         stateLabel.text = "STOPPED"
         diagnostics.append("ACTION", "stop")
     }
 
-    @objc private func clearTapped() {
+    /// 取消操作并清空画面，保留诊断供排查。
+    @objc func clearTapped() {
         cancelOperation()
         playerView.clear()
         stateLabel.text = "CLEARED"
         diagnostics.append("ACTION", "clear")
     }
 
-    @objc private func autoTestTapped() {
+    /// 登记一个页面内自动冒烟流程。
+    @objc func autoTestTapped() {
         cancelOperation()
         isAutomatedRun = true
         operationTask = Task { @MainActor [weak self] in await self?.runAutomatedSmokeTest() }
     }
 
-    private func prepareCurrent() async {
+    /// 等待准备结果；失败显示原因，不假装已有首帧。
+    func prepareCurrent() async {
         stateLabel.text = "PREPARING"
         diagnostics.append("ACTION", "prepare")
         do {
             let metadata = try await playerView.prepare(url: fixture.url, options: currentOptions())
+            // 新操作取消旧准备时，迟到结果不能覆盖新操作的页面状态。
+            try Task.checkCancellation()
             display(metadata)
             stateLabel.text = "READY"
             diagnostics.append("PASS", "prepare completed")
+        } catch is CancellationError {
+            // 用户已发起下一操作或离开页面，取消不展示成素材失败。
+            return
         } catch {
             stateLabel.text = "FAILED"
             diagnostics.append("ERROR", error.localizedDescription)
         }
     }
 
-    private func runAutomatedSmokeTest() async {
-        defer {
-            isAutomatedRun = false
-            _ = diagnostics.persist(fixture: fixture)
-        }
-        diagnostics.append("TEST", "automated smoke test started")
-        playerView.clear()
-        do {
-            let initialMetadata = try await playerView.prepare(url: fixture.url, options: currentOptions())
-            display(initialMetadata)
-            guard initialMetadata.frameCount > 0, initialMetadata.duration > 0,
-                  initialMetadata.canvasSize.width > 0, initialMetadata.canvasSize.height > 0 else {
-                throw SmokeTestError.invalidMetadata
-            }
-            diagnostics.append("PASS", "metadata invariants")
-        } catch {
-            if !fixture.looksLikeMedia {
-                stateLabel.text = "EXPECTED FAIL"
-                diagnostics.append("PASS", "negative fixture rejected: \(error.localizedDescription)")
-            } else {
-                stateLabel.text = "TEST FAILED"
-                diagnostics.append("ERROR", "prepare: \(error.localizedDescription)")
-            }
-            return
-        }
-
-        let modes: [(String, UIView.ContentMode)] = [
-            ("AspectFit", .scaleAspectFit),
-            ("AspectFill", .scaleAspectFill),
-            ("ScaleToFill", .scaleToFill)
-        ]
-        for (index, mode) in modes.enumerated() {
-            guard !Task.isCancelled else { return }
-            diagnostics.append("TEST", "case \(index + 1): \(mode.0)")
-            currentDidStart = false
-            currentFailure = nil
-            currentFinishReason = nil
-            let audio: AudioMode = index == modes.count - 1 && currentMetadata?.containsAudio == true ? .embedded : .muted
-            let options = currentOptions(contentMode: mode.1, audioMode: audio)
-            options.loopCount = 0
-            options.clearsAfterFinish = false
-            do {
-                _ = try await playerView.prepare(url: fixture.url, options: options)
-                let initialRenderedCount = diagnostics.renderedFrameCount
-                playerView.play(url: fixture.url, options: options)
-                try await waitForPlaybackEvidence(after: initialRenderedCount, timeout: 3)
-                playerView.pause()
-                stateLabel.text = "PAUSED"
-                diagnostics.append("TEST", "pause")
-                try await Task.sleep(nanoseconds: 250_000_000)
-                let pausedRenderedCount = diagnostics.renderedFrameCount
-                playerView.resume()
-                stateLabel.text = "PLAYING"
-                diagnostics.append("TEST", "resume")
-                try await waitForRenderedFrame(after: pausedRenderedCount, timeout: 3)
-                playerView.stop()
-                guard currentFinishReason == .stopped else { throw SmokeTestError.missingStoppedCallback }
-                diagnostics.append("PASS", "\(mode.0) lifecycle")
-            } catch is CancellationError {
-                return
-            } catch {
-                diagnostics.append("ERROR", "\(mode.0): \(error.localizedDescription)")
-                stateLabel.text = "TEST FAILED"
-                return
-            }
-        }
-        playerView.clear()
-        stateLabel.text = "TEST PASSED"
-        diagnostics.append("PASS", "all smoke cases completed")
-    }
-
-    private func waitForPlaybackEvidence(after renderedCount: Int, timeout: TimeInterval) async throws {
-        let deadline = ProcessInfo.processInfo.systemUptime + timeout
-        while ProcessInfo.processInfo.systemUptime < deadline {
-            if let currentFailure { throw currentFailure }
-            if currentDidStart, diagnostics.renderedFrameCount > renderedCount { return }
-            try await Task.sleep(nanoseconds: 50_000_000)
-        }
-        throw SmokeTestError.playbackEvidenceTimeout
-    }
-
-    private func waitForRenderedFrame(after renderedCount: Int, timeout: TimeInterval) async throws {
-        let deadline = ProcessInfo.processInfo.systemUptime + timeout
-        while ProcessInfo.processInfo.systemUptime < deadline {
-            if let currentFailure { throw currentFailure }
-            if diagnostics.renderedFrameCount > renderedCount { return }
-            try await Task.sleep(nanoseconds: 50_000_000)
-        }
-        throw SmokeTestError.renderTimeout
-    }
-
-    private func cancelOperation() {
+    /// 取消本页面拥有的操作并清除自动测试标记。
+    func cancelOperation() {
         operationTask?.cancel()
         operationTask = nil
         isAutomatedRun = false
     }
 
-    private func display(_ metadata: AssetMetadata) {
+    /// 显示元数据值快照，逻辑尺寸与编码尺寸分别标注。
+    func display(_ metadata: AssetMetadata) {
         currentMetadata = metadata
         metadataLabel.text = String(
             format: "%@ · codec %@ · vapc v%ld · %ld frames · %.3fs\nencoded %.0f×%.0f · canvas %.0f×%.0f · alpha %@\naudio %@ · dynamic %ld",
@@ -595,117 +334,40 @@ final class PlaybackDetailViewController: UIViewController {
         )
     }
 
-    @objc private func shareReport() {
+    /// 打开报告分享面板，不发送网络消息。
+    @objc func shareReport() {
         let report = diagnostics.reportText(fixture: fixture)
         let controller = UIActivityViewController(activityItems: [report], applicationActivities: nil)
         controller.popoverPresentationController?.barButtonItem = navigationItem.rightBarButtonItem
         present(controller, animated: true)
     }
 
-    private func makeCard(title: String, accessory: String? = nil, rows: [UIView]) -> UIView {
-        let titleLabel = UILabel()
-        titleLabel.text = title
-        titleLabel.font = .systemFont(ofSize: 15, weight: .bold)
-        titleLabel.textColor = .white
-        titleLabel.setContentHuggingPriority(.required, for: .horizontal)
-        titleLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-        let header: UIView
-        if let accessory {
-            let hintLabel = UILabel()
-            hintLabel.text = accessory
-            hintLabel.font = .systemFont(ofSize: 11, weight: .regular)
-            hintLabel.textColor = UIColor(white: 0.52, alpha: 1)
-            hintLabel.textAlignment = .right
-            hintLabel.numberOfLines = 2
-            hintLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            let row = UIStackView(arrangedSubviews: [titleLabel, hintLabel])
-            row.axis = .horizontal
-            row.alignment = .firstBaseline
-            row.spacing = 8
-            header = row
-        } else {
-            header = titleLabel
-        }
-        let stack = UIStackView(arrangedSubviews: [header] + rows)
-        stack.axis = .vertical
-        stack.spacing = 12
-        let card = UIView()
-        card.backgroundColor = UIColor(red: 0.07, green: 0.08, blue: 0.12, alpha: 1)
-        card.layer.cornerRadius = 18
-        card.layer.cornerCurve = .continuous
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
-            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
-            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16)
-        ])
-        return card
-    }
-
-    private func makeOptionRow(title: String, control: UIView) -> UIView {
-        let label = UILabel()
-        label.text = title
-        label.font = .systemFont(ofSize: 13, weight: .medium)
-        label.textColor = UIColor(white: 0.72, alpha: 1)
-        label.setContentHuggingPriority(.required, for: .horizontal)
-        let stack = UIStackView(arrangedSubviews: [label, control])
-        stack.axis = .horizontal
-        stack.spacing = 12
-        stack.alignment = .center
-        control.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        return stack
-    }
-
-    private func makeButtonRow(_ buttons: [UIButton]) -> UIView {
-        let row = UIStackView(arrangedSubviews: buttons)
-        row.axis = .horizontal
-        row.distribution = .fillEqually
-        row.spacing = 10
-        return row
-    }
-
-    private func makeButton(
-        _ title: String,
-        icon: String,
-        action: Selector,
-        id: String,
-        prominent: Bool = false
-    ) -> UIButton {
-        var configuration: UIButton.Configuration = prominent ? .filled() : .tinted()
-        configuration.title = title
-        configuration.image = UIImage(systemName: icon)
-        configuration.imagePadding = 7
-        configuration.cornerStyle = .medium
-        configuration.baseBackgroundColor = UIColor(red: 0.12, green: 0.48, blue: 0.72, alpha: 1)
-        configuration.baseForegroundColor = .white
-        let button = UIButton(configuration: configuration)
-        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
-        button.addTarget(self, action: action, for: .touchUpInside)
-        button.accessibilityIdentifier = id
-        return button
-    }
 }
 
+
+/// 将内核回调或动态内容解析收敛到当前实验页面。
 extension PlaybackDetailViewController: PlayerDelegate {
+    /// 记录本轮已运行，更新页面状态。
     func playerDidStart(_ player: PlayerView) {
         currentDidStart = true
         stateLabel.text = "PLAYING"
         diagnostics.append("CALLBACK", "didStart")
     }
 
+    /// 显示 prepare 解析得到的元数据快照。
     func player(_ player: PlayerView, didUpdate metadata: AssetMetadata) {
         display(metadata)
         diagnostics.append("CALLBACK", "metadata resolved")
     }
 
+    /// 记录唯一终态原因，供冒烟流程核对。
     func playerDidFinish(_ player: PlayerView, reason: FinishReason) {
         currentFinishReason = reason
         stateLabel.text = "FINISHED"
         diagnostics.append("CALLBACK", "finish: \(String(describing: reason))")
     }
 
+    /// 更新元数据或记录不可恢复错误，保持负向样本的预期失败语义。
     func player(_ player: PlayerView, didFail error: Error) {
         currentFailure = error
         stateLabel.text = fixture.looksLikeMedia ? "FAILED" : "EXPECTED FAIL"
@@ -713,12 +375,10 @@ extension PlaybackDetailViewController: PlayerDelegate {
     }
 }
 
+/// 为本地槽位提供主线程图片或文本，保持已有素材选择控件行为。
 extension PlaybackDetailViewController: DynamicContentProvider {
-    func resolve(
-        tag: String,
-        source: SourceMetadata,
-        completion: @escaping (DynamicContent?, Error?) -> Void
-    ) {
+    /// 异步 provider 返回已准备的本地样本内容，不下载资源。
+    func resolve(tag: String, source: SourceMetadata) async throws -> DynamicContent? {
         diagnostics.append(
             "DYNAMIC",
             "resolve \(tag) (\(source.kind == .text ? "txt" : "img")), \(Int(source.slotSize.width))×\(Int(source.slotSize.height))"
@@ -726,51 +386,11 @@ extension PlaybackDetailViewController: DynamicContentProvider {
                     ? ", \(GiftCatalog.replacementSampleDisplayName(at: replacementTextIndex))"
                     : ", \(giftNameLabel.text ?? "")")
         )
-        completion(GiftCatalog.content(
+        return GiftCatalog.content(
             for: source,
             imagePolicy: currentImagePolicy,
             imageIndex: currentImageIndex,
             replacementIndex: replacementTextIndex
-        ), nil)
-    }
-}
-
-private enum SmokeTestError: LocalizedError {
-    case invalidMetadata
-    case playbackEvidenceTimeout
-    case renderTimeout
-    case missingStoppedCallback
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidMetadata: return "Metadata invariants failed."
-        case .playbackEvidenceTimeout: return "Playback did not start and render a frame before timeout."
-        case .renderTimeout: return "Playback did not render a frame after resume before timeout."
-        case .missingStoppedCallback: return "Stop did not emit the stopped terminal callback."
-        }
-    }
-}
-
-private final class CheckerboardView: UIView {
-    override func draw(_ rect: CGRect) {
-        let side: CGFloat = 18
-        let rows = Int(ceil(rect.height / side))
-        let columns = Int(ceil(rect.width / side))
-        for row in 0..<rows {
-            for column in 0..<columns {
-                let light = (row + column).isMultiple(of: 2)
-                (light ? UIColor(white: 0.16, alpha: 1) : UIColor(white: 0.11, alpha: 1)).setFill()
-                UIRectFill(CGRect(x: CGFloat(column) * side, y: CGFloat(row) * side, width: side, height: side))
-            }
-        }
-    }
-}
-
-private final class InsetsLabel: UILabel {
-    private let insets = UIEdgeInsets(top: 5, left: 9, bottom: 5, right: 9)
-    override func drawText(in rect: CGRect) { super.drawText(in: rect.inset(by: insets)) }
-    override var intrinsicContentSize: CGSize {
-        let size = super.intrinsicContentSize
-        return CGSize(width: size.width + insets.left + insets.right, height: size.height + insets.top + insets.bottom)
+        )
     }
 }

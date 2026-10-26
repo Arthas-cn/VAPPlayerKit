@@ -15,39 +15,61 @@ struct RenderSnapshot: Sendable {
 
 /// 视频底图 fragment 的 RGB/Alpha 采样区域、模式和 YCbCr 矩阵。
 private struct FrameUniforms {
+    /// 编码帧中颜色区域的归一化原点与宽高。
     var rgbRect: SIMD4<Float>
+    /// 编码帧中灰度 Alpha 区域的归一化原点与宽高。
     var alphaRect: SIMD4<Float>
+    /// YCbCr 转 RGB 的矩阵选择，0 为 BT.601，1 为 BT.709。
     var colorMatrix: UInt32
+    /// 是否从独立灰度区采样 Alpha，普通视频设为 0。
     var alphaEnabled: UInt32
+    /// 与 Metal 结构体保持相同尾部对齐，不承载业务状态。
     var padding = SIMD2<UInt32>(repeating: 0)
 }
 
 /// 动态槽位 overlay 的画布矩形、mask 区域、旋转和 source UV 窗口。
 private struct AttachmentUniforms {
+    /// 动态内容在逻辑颜色画布中的归一化位置与尺寸。
     var renderRect: SIMD4<Float>
+    /// 动态内容 mask 在完整编码帧中的归一化位置与尺寸。
     var maskRect: SIMD4<Float>
+    /// 编码帧中颜色区域的归一化原点与宽高。
     var rgbRect: SIMD4<Float>
+    /// 动态纹理可见窗口的 UV 起点，跑马灯会移动它。
     var sourceUVOrigin: SIMD2<Float>
+    /// 动态纹理可见窗口的归一化宽高。
     var sourceUVSize: SIMD2<Float>
+    /// mask 的四分之一圈旋转角度，与视频轨显示旋转无关。
     var rotation: UInt32
+    /// YCbCr 转 RGB 的矩阵选择，0 为 BT.601，1 为 BT.709。
     var colorMatrix: UInt32
+    /// 与 Metal 结构体保持相同尾部对齐，不承载业务状态。
     var padding = SIMD2<UInt32>(repeating: 0)
 }
 
 /// 动态纹理上的可见采样窗口。静图 / 动图为整张；跑马灯为滑动矩形。
 private struct SourceUV {
+    /// 当前动态纹理采样窗口的归一化左上角。
     var origin: SIMD2<Float>
+    /// 当前采样窗口占整张纹理的比例。
     var size: SIMD2<Float>
+    /// 整张纹理的默认采样窗口，静态图和普通动图使用它。
     static let identity = SourceUV(origin: SIMD2(0, 0), size: SIMD2(1, 1))
 }
 
 /// GPU 尚未完成时必须继续持有的帧资源。共享 texture cache 由 `MetalContext` 持有；
 /// 这些引用必须在 context 允许 idle flush 之前释放。
 private final class InFlightFrameResources: @unchecked Sendable {
+    /// 保护 GPU completion 解除持有的临界区，禁止与另一条清理路径同时释放。
+    private let lock = NSLock()
+    /// GPU 尚未完成时保留的解码帧，完成后才解除像素所有权。
     private var frame: DecodedFrame?
+    /// GPU 使用中的亮度纹理引用，完成后释放以允许池复用。
     private var yReference: CVMetalTexture?
+    /// GPU 使用中的色度纹理引用，与亮度引用同时结束。
     private var uvReference: CVMetalTexture?
 
+    /// 持有一次 GPU 提交使用的 CPU/CoreVideo 引用，提交完成前不释放。
     init(frame: DecodedFrame, yReference: CVMetalTexture, uvReference: CVMetalTexture) {
         self.frame = frame
         self.yReference = yReference
@@ -56,22 +78,28 @@ private final class InFlightFrameResources: @unchecked Sendable {
 
     /// command buffer 完成后丢掉 CVPixelBuffer / CVMetalTexture，才能安全 flush cache。
     func releaseReferences() {
-        frame = nil
-        yReference = nil
-        uvReference = nil
+        lock.withLock {
+            frame = nil
+            yReference = nil
+            uvReference = nil
+        }
     }
 }
 
 /// 将 NV12 pixel buffer 中的 packed RGB/Alpha 区域合成到 `CAMetalLayer`。
 /// 可变状态限制在 `renderQueue`；MainActor 只传入不可变 snapshot。
 final class MetalRenderer: @unchecked Sendable {
+    /// 受锁保护的共享 Metal 资源工厂，不拥有业务播放请求。
     private let context: MetalContext
     /// 所有 GPU 提交和动态纹理更新都在这条队列串行执行。
     private let renderQueue = DispatchQueue(label: "com.vapplayerkit.renderer", qos: .userInteractive)
     /// 跟踪尚未完成的 command buffer，dispose 时必须等它归零。
     private let inFlight = DispatchGroup()
+    /// 仅在 renderQueue 使用的 GPU 设备，dispose 后为 nil。
     private var device: MTLDevice?
+    /// 本 renderer 的提交队列引用，策略由 MetalContext 决定。
     private var commandQueue: MTLCommandQueue?
+    /// 本次准备使用的 shader library，排空后释放私有引用。
     private var library: MTLLibrary?
     /// packed 视频底图 pipeline。
     private var pipeline: MTLRenderPipelineState?
@@ -83,11 +111,21 @@ final class MetalRenderer: @unchecked Sendable {
     private var dynamicTextures: [String: MTLTexture] = [:]
     /// 按 vapc source id 缓存的动态纹理 UV 窗口。缺省视为整张纹理。
     private var sourceUVs: [String: SourceUV] = [:]
-    private weak var layer: CAMetalLayer?
+    /// 引用本身由锁保护；几何更新在主线程，nextDrawable 按 Metal 约定在呈现队列获取。
+    private weak var storedLayer: CAMetalLayer?
+    /// 保护 MainActor 安装与 renderQueue 读取之间的层引用交接。
+    private let layerLock = NSLock()
+    /// 对共享层引用的同步访问，不把 CAMetalLayer 裸捕获进 Sendable 闭包。
+    private var layer: CAMetalLayer? {
+        get { layerLock.withLock { storedLayer } }
+        set { layerLock.withLock { storedLayer = newValue } }
+    }
+    /// 主线程提交的不可变呈现几何，所有读写在 renderQueue 串行执行。
     private var snapshot = RenderSnapshot(drawableSize: .zero, contentMode: .scaleAspectFit)
     /// dispose 后拒绝新的 render / 动态纹理更新。
     private var disposed = false
 
+    /// 注入可共享的 Metal 工厂，不在初始化中创建 pipeline。
     init(context: MetalContext = .shared) {
         self.context = context
     }
@@ -102,6 +140,7 @@ final class MetalRenderer: @unchecked Sendable {
         layer.pixelFormat = .bgra8Unorm
         layer.framebufferOnly = true
         layer.isOpaque = false
+
         self.layer = layer
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -157,10 +196,13 @@ final class MetalRenderer: @unchecked Sendable {
                         let image: UIImage?
                         var uv = SourceUV.identity
                         switch content {
+                        // 静图直接上传已物化图片，不额外解码新来源。
                         case .image(let value):
                             image = value
+                        // 准备阶段先上传首帧，动画时间轴只在开始播放后推进。
                         case .animated(let slot):
                             image = slot.firstFrame
+                        // 长条纹理复用槽位窗口 UV，避免每帧重画文字。
                         case .marquee(let slot):
                             image = slot.strip
                             let window = MarqueeLayout.sourceUV(
@@ -169,6 +211,7 @@ final class MetalRenderer: @unchecked Sendable {
                                 textureWidth: slot.textureWidth
                             )
                             uv = SourceUV(origin: window.origin, size: window.size)
+                        // 空内容不占纹理预算，也不生成默认图。
                         case .hidden:
                             continue
                         }
@@ -278,8 +321,8 @@ final class MetalRenderer: @unchecked Sendable {
     func render(
         _ frame: DecodedFrame,
         vapc: VapcDocument,
-        didSubmit: @escaping (CFTimeInterval) -> Void,
-        completion: @escaping (Result<Bool, PlaybackError>) -> Void
+        didSubmit: @escaping @Sendable (CFTimeInterval) -> Void,
+        completion: @escaping @Sendable (Result<Bool, PlaybackError>) -> Void
     ) {
         renderQueue.async { [weak self] in
             guard let self, !self.disposed else {
@@ -304,8 +347,8 @@ final class MetalRenderer: @unchecked Sendable {
     private func encode(
         _ frame: DecodedFrame,
         vapc: VapcDocument,
-        didSubmit: @escaping (CFTimeInterval) -> Void,
-        completion: @escaping (Result<Bool, PlaybackError>) -> Void
+        didSubmit: @escaping @Sendable (CFTimeInterval) -> Void,
+        completion: @escaping @Sendable (Result<Bool, PlaybackError>) -> Void
     ) throws -> Bool {
         guard
             let layer,
@@ -431,6 +474,19 @@ final class MetalRenderer: @unchecked Sendable {
             self.disposed = true
             self.inFlight.notify(queue: self.renderQueue) { [self] in
                 self.releaseResources()
+            }
+        }
+    }
+
+    /// 在 renderer 队列拒绝新提交，等待 GPU 完成后确认私有资源已释放。
+    func disposeAndWait() async {
+        await withCheckedContinuation { continuation in
+            renderQueue.async { [self] in
+                disposed = true
+                inFlight.notify(queue: renderQueue) { [self] in
+                    releaseResources()
+                    continuation.resume()
+                }
             }
         }
     }

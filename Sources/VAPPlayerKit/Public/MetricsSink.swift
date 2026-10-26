@@ -29,7 +29,7 @@ public enum MetricsEvent: Sendable {
 }
 
 /// 宿主可注入的指标接收器。组件内部不强依赖具体 APM。
-public protocol MetricsSink: AnyObject {
+public protocol MetricsSink: AnyObject, Sendable {
     /// 记录一个事件。调用线程不保证是主线程。
     func record(_ event: MetricsEvent)
 }

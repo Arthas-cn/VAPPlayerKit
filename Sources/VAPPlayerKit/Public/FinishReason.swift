@@ -1,8 +1,7 @@
 import Foundation
 
 /// 一次播放 session 的终态原因。每个 session 最多报告一次终态。
-@objc(VPKFinishReason)
-public enum FinishReason: Int, Sendable {
+public enum FinishReason: Sendable, Equatable {
     /// 按 `loopCount` 播完，正常结束。
     case completed
     /// 宿主调用了 `stop()` 或后台策略要求停止。

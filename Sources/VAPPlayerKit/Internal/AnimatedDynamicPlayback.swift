@@ -2,18 +2,21 @@ import Foundation
 import UIKit
 
 /// 一次 session 里需要按帧驱动的动图槽位。
-struct AnimatedDynamicSlot: @unchecked Sendable {
+struct AnimatedDynamicSlot: Sendable {
     /// 宿主传入的 `SDAnimatedImage`。组件不持有解码器实现，只通过 runtime bridge 取帧。
     let provider: UIImage
     /// 已按槽位缩放的第一帧，prepare 阶段即可上传。
     let firstFrame: UIImage
+    /// 原始槽位几何，每个动画帧必须按同一像素边界缩放。
     let source: VapcSource
 }
 
 /// 在单个 VAP session 生命周期内驱动 SDWebImage 动图槽位纹理。
 @MainActor
 final class AnimatedDynamicPlayback {
+    /// 当前会话的渲染目标，停止后不再向它提交帧。
     private weak var renderer: MetalRenderer?
+    /// 本会话拥有的可选动图驱动器，不包含下载或图片磁盘缓存。
     private var players: [SDWebImageRuntime.Player] = []
     /// stop 后递增，使过期帧回调丢弃。
     private var generation: UInt64 = 0

@@ -4,23 +4,31 @@ import CoreVideo
 
 /// `AVAssetReaderTrackOutput` 解码后端。AVFoundation 负责 MP4 sample table 和硬解选择，
 /// session 仍自行管理 PTS、背压、循环和渲染。
-final class AVAssetReaderFrameSource: FrameSource {
+final class AVAssetReaderFrameSource: FrameSource, @unchecked Sendable {
+    /// 本后端独占的本地不可变资源地址。
     private let url: URL
     /// 解码生产线程。与主线程 / render queue 隔离。
     private let queue = DispatchQueue(label: "com.vapplayerkit.frame-source", qos: .userInitiated)
     /// 保护 pause / cancel / reader 生命周期。
     private let state = NSCondition()
+    /// 受 condition 保护的媒体资产，排空后清除。
     private var asset: AVURLAsset?
+    /// 受 condition 保护的视频轨道，不向元数据缓存导出。
     private var videoTrack: AVAssetTrack?
+    /// 当前 producer 的系统解码器，只在串行解码队列操作。
     private var reader: AVAssetReader?
     /// 标识当前 producer。取消并重启时，旧 producer 即使晚回调也不能碰新一轮状态。
     private var producerID: UInt64 = 0
+    /// reader 所属代次，nil 表示当前没有已安装的 reader。
     private var readerProducerID: UInt64?
     /// 当前正在写入的 ring buffer；cancel 时用来唤醒等待中的 enqueue。
     private var currentBuffer: FrameRingBuffer?
+    /// 背压条件锁下的暂停门，恢复或取消时唤醒生产者。
     private var paused = false
+    /// 条件锁下的取消门，取消后的旧 producer 不得再入队。
     private var cancelled = false
 
+    /// 绑定本地输入，只记录地址，不读取文件或创建 reader。
     init(url: URL) {
         self.url = url
     }
@@ -32,12 +40,9 @@ final class AVAssetReaderFrameSource: FrameSource {
 
     /// 优先复用 inspector 已加载的 AVAsset / video track，避免 warm prepare 重复查询 AVFoundation 元数据。
     func prepare(using context: FrameSourceContext?) async throws -> FrameSourceMetadata {
-        if let context {
-            state.withLock {
-                self.asset = context.asset
-                self.videoTrack = context.videoTrack
-            }
-            return context.metadata
+        // 只复用纯值提示，系统轨道对象由本后端独占，不能跨 actor 共享 AVAssetTrack。
+        if let context, context.url.standardizedFileURL != url.standardizedFileURL {
+            throw PlaybackError.invalidMP4(reason: "Inspection and decoder file identities differ.")
         }
 
         let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
@@ -57,8 +62,11 @@ final class AVAssetReaderFrameSource: FrameSource {
         let subtype = CMFormatDescriptionGetMediaSubType(description)
         let codec: String
         switch subtype {
+        // 与 inspector 使用相同的规范名称，准备后才能核对两者的轨道身份。
         case kCMVideoCodecType_H264: codec = "h264"
+        // HEVC 仍走统一 NV12 输出，此名称不承诺原生 Alpha 轨道支持。
         case kCMVideoCodecType_HEVC: codec = "hevc"
+        // 未支持的编码明确拒绝，避免把未知格式继续交给纹理管线。
         default: throw PlaybackError.unsupportedCodec(String(subtype))
         }
         let dimensions = CMVideoFormatDescriptionGetDimensions(description)
@@ -80,8 +88,8 @@ final class AVAssetReaderFrameSource: FrameSource {
         token: SessionToken,
         startTime: CMTime,
         frameIndexOffset: Int,
-        didProduce: @escaping (Int) -> Void,
-        completion: @escaping (Result<Void, PlaybackError>) -> Void
+        didProduce: @escaping @Sendable (Int) -> Void,
+        completion: @escaping @Sendable (Result<Void, PlaybackError>) -> Void
     ) {
         let currentProducerID = state.withLock { () -> UInt64 in
             producerID &+= 1
@@ -161,10 +169,13 @@ final class AVAssetReaderFrameSource: FrameSource {
                     return
                 }
                 switch status {
+                // 只有 reader 确认完成才报告生产结束；会话仍负责展示剩余缓冲帧。
                 case .completed:
                     completion(.success(()))
+                // 系统取消属于控制流，不能伪造成解码错误触发失败重试。
                 case .cancelled:
                     completion(.failure(.cancelled))
+                // 其他状态都不能证明正常 EOF，保留系统错误码交给会话结算。
                 default:
                     completion(.failure(.decoderFailed(osStatus: self.errorCode(reader.error))))
                 }
@@ -224,6 +235,21 @@ final class AVAssetReaderFrameSource: FrameSource {
         }
     }
 
+    /// 先唤醒背压/暂停中的 producer，再在同一串行队列尾部确认清理完成。
+    func cancelAndWait() async {
+        cancel()
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in
+                state.withLock {
+                    reader = nil
+                    asset = nil
+                    videoTrack = nil
+                }
+                continuation.resume()
+            }
+        }
+    }
+
     /// 创建 NV12、Metal 兼容的 track output。`alwaysCopiesSampleData = false` 减少拷贝。
     private func makeReader(startTime: CMTime) throws -> (AVAssetReader, AVAssetReaderTrackOutput) {
         guard let asset = state.withLock({ self.asset }), let track = state.withLock({ self.videoTrack }) else {
@@ -262,10 +288,12 @@ final class AVAssetReaderFrameSource: FrameSource {
         return !cancelled && self.producerID == producerID
     }
 
+    /// 在条件锁中检查生产代次和取消门，防止旧 reader 覆盖新状态。
     private func isCurrentProducer(_ producerID: UInt64) -> Bool {
         state.withLock { !cancelled && self.producerID == producerID }
     }
 
+    /// 将系统错误压缩为可发送的 OSStatus，缺少原始错误时返回 -1。
     private func errorCode(_ error: Error?) -> Int32 {
         guard let error else { return -1 }
         return Int32(clamping: (error as NSError).code)

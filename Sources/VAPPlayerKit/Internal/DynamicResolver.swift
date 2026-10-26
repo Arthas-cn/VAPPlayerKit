@@ -2,7 +2,7 @@ import Foundation
 import UIKit
 
 /// 动态槽位解析后的可上传内容。组件不会保留原始 provider 回调对象。
-enum ResolvedDynamicContent: @unchecked Sendable {
+enum ResolvedDynamicContent: Sendable {
     /// 已按槽位缩放的静图。
     case image(UIImage)
     /// 可动画图片：保留 provider 以便 session 期间驱动帧，同时缓存第一帧。
@@ -14,7 +14,8 @@ enum ResolvedDynamicContent: @unchecked Sendable {
 }
 
 /// 一次 prepare 得到的全部动态槽位内容，按 vapc `srcId` 索引。
-struct DynamicSnapshot: @unchecked Sendable {
+struct DynamicSnapshot: Sendable {
+    /// 按素材 sourceID 索引的已准备覆盖内容，未传值的槽位保持隐藏。
     let contents: [String: ResolvedDynamicContent]
 
     /// 没有动态槽位时的空快照。
@@ -24,15 +25,17 @@ struct DynamicSnapshot: @unchecked Sendable {
 /// 准备动态图片 / 文字。不进入视频解码线程，不发网络请求。
 @MainActor
 final class DynamicResolver {
-    /// Swift provider。与 ObjC provider 同时存在时优先 Swift。
-    weak var provider: DynamicContentProvider?
-    weak var objcProvider: ObjCDynamicContentProvider?
-    /// 递增代数。新的 resolve / cancel 会使进行中的 completion 失效。
+    /// 当前请求强持有的提供者；不在准备期间切换为另一位业务消费者。
+    var provider: (any DynamicContentProvider)?
+    /// 递增的请求代次；迟到的 provider 结果不能进入下一轮纹理。
     private var generation: UInt64 = 0
-    /// 尚未收口的 completion gate，cancel 时统一失败。
-    private var activeGates: [UUID: DynamicResolutionGate] = [:]
+    /// 正在执行的提供者任务；取消只是请求，排空仍等待真实返回。
+    private var operations: [UUID: Task<ResolvedDynamicContent, Error>] = [:]
+    /// 已触发截止时间的操作，用于区分主动取消与动态内容超时。
+    private var timedOut: Set<UUID> = []
 
-    /// 并行解析全部 source。无 provider 时全部 hidden；超时抛 `dynamicContentTimeout`。
+    /// 串行准备槽位，避免一个父加载名额再产生数百个并行解码任务。
+    /// 超时会取消提供者；不合作的提供者仍由操作表持有直到返回。
     func resolve(
         sources: [VapcSource],
         timeout: TimeInterval = 8,
@@ -41,147 +44,82 @@ final class DynamicResolver {
     ) async throws -> DynamicSnapshot {
         generation &+= 1
         let currentGeneration = generation
-        guard !sources.isEmpty else { return .empty }
         var totalBytes = 0
         for source in sources {
-            guard
-                let bytes = DynamicTextureLimits.byteCount(for: source.slotSize),
-                bytes <= DynamicTextureLimits.maximumBytesPerTexture,
-                totalBytes <= DynamicTextureLimits.maximumBytesPerSession - bytes
-            else {
+            // 先检查全体槽位预算，再调用业务，防止已完成半份内容后才发现分配超额。
+            guard let bytes = DynamicTextureLimits.byteCount(for: source.slotSize),
+                  bytes <= DynamicTextureLimits.maximumBytesPerTexture,
+                  totalBytes <= DynamicTextureLimits.maximumBytesPerSession - bytes else {
                 throw PlaybackError.invalidVapc(reason: "Dynamic source textures exceed the allocation budget.")
             }
             totalBytes += bytes
         }
-        guard provider != nil || objcProvider != nil else {
-            return DynamicSnapshot(contents: Dictionary(uniqueKeysWithValues: sources.map { ($0.id, .hidden) }))
-        }
-
-        return try await withThrowingTaskGroup(of: (String, ResolvedDynamicContent).self) { group in
-            for source in sources {
-                group.addTask { @MainActor [weak self] in
-                    guard let self, self.generation == currentGeneration else {
-                        throw PlaybackError.cancelled
-                    }
-                    let content = try await self.resolveOne(
-                        source,
-                        timeout: timeout,
-                        generation: currentGeneration,
-                        imagePlayback: imagePlayback,
-                        textOverflow: textOverflow
-                    )
-                    return (source.id, content)
-                }
+        var contents: [String: ResolvedDynamicContent] = [:]
+        for source in sources {
+            // 每个 await 后重验代次；clear 不会允许剩余槽位继续调用提供者。
+            guard generation == currentGeneration, !Task.isCancelled else {
+                throw CancellationError()
             }
-            var result: [String: ResolvedDynamicContent] = [:]
-            for try await (id, content) in group {
-                result[id] = content
-            }
-            return DynamicSnapshot(contents: result)
+            contents[source.id] = try await resolveOne(
+                source, timeout: timeout, generation: currentGeneration,
+                imagePlayback: imagePlayback, textOverflow: textOverflow
+            )
         }
+        return DynamicSnapshot(contents: contents)
     }
 
-    /// 作废进行中的 provider 回调，使后续 completion 全部按 cancelled 收口。
+    /// 作废当前代次并请求全部提供者取消，不把取消意图当作实际任务结束。
     func cancel() {
         generation &+= 1
-        let gates = activeGates.values
-        activeGates.removeAll()
-        for gate in gates {
-            gate.finish(.failure(PlaybackError.cancelled))
-        }
+        for operation in operations.values { operation.cancel() }
     }
 
-    /// 解析单个 source：调用 provider，并用超时 Task 兜底。completion 必须且只能生效一次。
+    /// 等待所有已进入的提供者真实退出；不能删文件或归还加载额度后再补等。
+    func cancelAndWait() async {
+        cancel()
+        let pending = Array(operations.values)
+        for operation in pending { _ = await operation.result }
+    }
+
+    /// 解析一个槽位并物化内容，操作任务和截止时间任务都有明确结束路径。
     private func resolveOne(
-        _ source: VapcSource,
-        timeout: TimeInterval,
-        generation: UInt64,
-        imagePlayback: DynamicImagePlaybackMode,
-        textOverflow: DynamicTextOverflowMode
+        _ source: VapcSource, timeout: TimeInterval, generation: UInt64,
+        imagePlayback: DynamicImagePlaybackMode, textOverflow: DynamicTextOverflowMode
     ) async throws -> ResolvedDynamicContent {
-        let metadata = SourceMetadata(
-            tag: source.tag,
-            slotSize: source.slotSize,
-            kind: source.kind == .text ? .text : .image
-        )
-        let gate = DynamicResolutionGate()
-        let gateID = UUID()
-        activeGates[gateID] = gate
-        defer { activeGates[gateID] = nil }
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                gate.install(continuation)
-                if let provider {
-                    provider.resolve(tag: source.tag, source: metadata) { content, error in
-                        Task { @MainActor [weak self] in
-                            guard let self, self.generation == generation else {
-                                gate.finish(.failure(PlaybackError.cancelled))
-                                return
-                            }
-                            if let error {
-                                gate.finish(.failure(error))
-                            } else {
-                                let resolved = await self.materialize(
-                                    content ?? .hidden,
-                                    source: source,
-                                    imagePlayback: imagePlayback,
-                                    textOverflow: textOverflow
-                                )
-                                guard self.generation == generation else {
-                                    gate.finish(.failure(PlaybackError.cancelled))
-                                    return
-                                }
-                                gate.finish(.success(resolved))
-                            }
-                        }
-                    }
-                } else if let objcProvider {
-                    objcProvider.resolveTag(source.tag, source: metadata) { [weak self] image, replacementText, error in
-                        Task { @MainActor in
-                            guard let self, self.generation == generation else {
-                                gate.finish(.failure(PlaybackError.cancelled))
-                                return
-                            }
-                            if let error {
-                                gate.finish(.failure(error))
-                            } else if let replacementText {
-                                let resolved = await self.materialize(
-                                    .textReplacement(replacementText),
-                                    source: source,
-                                    imagePlayback: imagePlayback,
-                                    textOverflow: textOverflow
-                                )
-                                guard self.generation == generation else {
-                                    gate.finish(.failure(PlaybackError.cancelled))
-                                    return
-                                }
-                                gate.finish(.success(resolved))
-                            } else if let image {
-                                let resolved = await self.materialize(
-                                    .image(image),
-                                    source: source,
-                                    imagePlayback: imagePlayback,
-                                    textOverflow: textOverflow
-                                )
-                                guard self.generation == generation else {
-                                    gate.finish(.failure(PlaybackError.cancelled))
-                                    return
-                                }
-                                gate.finish(.success(resolved))
-                            } else {
-                                gate.finish(.success(.hidden))
-                            }
-                        }
-                    }
-                }
-                Task {
-                    try? await Task.sleep(nanoseconds: UInt64(max(0.01, timeout) * 1_000_000_000))
-                    gate.finish(.failure(PlaybackError.dynamicContentTimeout))
-                }
-            }
-        } onCancel: {
-            gate.finish(.failure(PlaybackError.cancelled))
+        // 无提供者时保持视频底图；透明视频没有 source，自然不会进入这里。
+        guard let provider else { return .hidden }
+        let id = UUID()
+        let metadata = SourceMetadata(tag: source.tag, slotSize: source.slotSize,
+                                      kind: source.kind == .text ? .text : .image)
+        let operation = Task { @MainActor in
+            let content = try await provider.resolve(tag: source.tag, source: metadata)
+            try Task.checkCancellation()
+            return await self.materialize(content ?? .hidden, source: source,
+                                          imagePlayback: imagePlayback, textOverflow: textOverflow)
         }
+        operations[id] = operation
+        let deadline = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(max(0.01, timeout))) }
+            catch { return }
+            // 截止时间只使结果失效；真正的 provider 返回仍是排空边界。
+            self?.timedOut.insert(id)
+            operation.cancel()
+        }
+        defer {
+            deadline.cancel()
+            operations[id] = nil
+            timedOut.remove(id)
+        }
+        let result = await withTaskCancellationHandler {
+            await operation.result
+        } onCancel: { operation.cancel() }
+        // 截止时间任务也持有 operation；等待其取消真实返回，避免排空后仍残留计时任务。
+        deadline.cancel()
+        await deadline.value
+        // 超时优先于操作内部的 CancellationError，主动清理则按取消交还上层。
+        if timedOut.contains(id) { throw PlaybackError.dynamicContentTimeout }
+        guard self.generation == generation, !Task.isCancelled else { throw CancellationError() }
+        return try result.get()
     }
 
     /// 把宿主返回的 `DynamicContent` 栅格化成可上传纹理。
@@ -193,12 +131,16 @@ final class DynamicResolver {
     ) async -> ResolvedDynamicContent {
         // 所有分支都走 UIKit 绘制。串行化到本 @MainActor，避免真机上图片和 TextKit 并发渲染死锁。
         switch content {
+        // 隐藏和未覆盖都保留视频底图，不分配占位纹理。
         case .hidden:
             return .hidden
+        // 图片只物化宿主已提供的数据，不在内核补做网络下载。
         case .image(let image):
             return Self.resolveImage(image, source: source, imagePlayback: imagePlayback)
+        // 显式文字属性优先于素材默认样式。
         case .text(let text, let attributes):
             return Self.resolveText(text, attributes: attributes, source: source, overflow: textOverflow)
+        // 仅替换文字时才合并素材槽位样式与可选字体。
         case .textReplacement(let text):
             return Self.resolveText(
                 text,
@@ -228,12 +170,9 @@ final class DynamicResolver {
         return .image(stillFrame)
     }
 
-    /// 优先问 Swift provider 的 `font(forTag:)`，否则问 ObjC 可选方法。
+    /// 从本次强持有的 Swift 提供者取得字体，未提供时使用自动样式。
     private func font(for source: VapcSource) -> UIFont? {
-        if let provider {
-            return provider.font(forTag: source.tag)
-        }
-        return objcProvider?.fontForTag?(source.tag)
+        provider?.font(forTag: source.tag)
     }
 
     /// 把 `.textReplacement` / `.text` 画成槽位纹理。放得下则居中；溢出则按 truncate / marquee。
@@ -349,6 +288,7 @@ final class DynamicResolver {
         value.removeFirst()
         guard let number = UInt64(value, radix: 16) else { return nil }
         switch value.count {
+        // RGB 未携带透明度，按完全不透明解释。
         case 6:
             return UIColor(
                 red: CGFloat((number >> 16) & 0xff) / 255,
@@ -356,6 +296,7 @@ final class DynamicResolver {
                 blue: CGFloat(number & 0xff) / 255,
                 alpha: 1
             )
+        // 八位格式把最高字节作为 Alpha，不能按 RGBA 交换末尾字节。
         case 8:
             return UIColor(
                 red: CGFloat((number >> 16) & 0xff) / 255,
@@ -363,6 +304,7 @@ final class DynamicResolver {
                 blue: CGFloat(number & 0xff) / 255,
                 alpha: CGFloat((number >> 24) & 0xff) / 255
             )
+        // 不接受缩写或未知位数，交给调用方统一回退文字颜色。
         default:
             return nil
         }
@@ -457,46 +399,5 @@ final class DynamicResolver {
         UIGraphicsPopContext()
         guard let cgImage = context.makeImage() else { return UIImage() }
         return UIImage(cgImage: cgImage, scale: 1, orientation: .up)
-    }
-}
-
-/// 保证 provider completion、超时和 cancel 三路只会 resume 一次 continuation。
-private final class DynamicResolutionGate {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<ResolvedDynamicContent, Error>?
-    private var result: Result<ResolvedDynamicContent, Error>?
-    private var completed = false
-
-    /// 安装 continuation。若结果已先到，立即 resume。
-    func install(_ continuation: CheckedContinuation<ResolvedDynamicContent, Error>) {
-        let pending: Result<ResolvedDynamicContent, Error>? = lock.withLock {
-            if let result { return result }
-            self.continuation = continuation
-            return nil
-        }
-        if let pending { continuation.resume(with: pending) }
-    }
-
-    /// 第一次调用生效；后续超时 / cancel / provider 重复回调都被忽略。
-    func finish(_ result: Result<ResolvedDynamicContent, Error>) {
-        let continuation: CheckedContinuation<ResolvedDynamicContent, Error>? = lock.withLock {
-            guard !completed else { return nil }
-            completed = true
-            guard let continuation = self.continuation else {
-                self.result = result
-                return nil
-            }
-            self.continuation = nil
-            return continuation
-        }
-        continuation?.resume(with: result)
-    }
-}
-
-private extension NSLock {
-    func withLock<T>(_ body: () -> T) -> T {
-        lock()
-        defer { unlock() }
-        return body()
     }
 }

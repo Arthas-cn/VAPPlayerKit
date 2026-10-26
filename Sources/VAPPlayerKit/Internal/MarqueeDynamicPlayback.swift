@@ -4,7 +4,7 @@ import simd
 import UIKit
 
 /// 一次 session 里需要按媒体无关时钟滑动的文字槽位。
-struct MarqueeDynamicSlot: @unchecked Sendable {
+struct MarqueeDynamicSlot: Sendable {
     /// 预绘的 `[文字][间隙][文字]` 长条，高度等于槽位。
     let strip: UIImage
     /// 可见窗口宽度，与槽位栅格化像素宽一致。
@@ -17,7 +17,9 @@ struct MarqueeDynamicSlot: @unchecked Sendable {
 
 /// 跑马灯几何与时间偏移。纯函数，便于单测。
 enum MarqueeLayout {
+    /// 默认文字滑动速度，单位 pt/s，不代表视频时钟速率。
     static let defaultSpeed: CGFloat = 80
+    /// 每圈文字开始滑动前的默认停顿秒数。
     static let defaultStartDelay: TimeInterval = 0.6
     /// 循环间隙，单位 pt。两份文字之间的空白。
     static let defaultGap: CGFloat = 25
@@ -83,14 +85,21 @@ enum MarqueeLayout {
 /// 在单个 VAP session 内驱动文字跑马灯 UV。时钟与视频 loop 无关，pause / suspend 时冻结。
 @MainActor
 final class MarqueeDynamicPlayback {
+    /// 本会话的纹理 UV 更新目标，不拥有 renderer。
     private weak var renderer: MetalRenderer?
+    /// 当前需要跑马灯的 sourceID 与已栅格化长条，停止后清空。
     private var slots: [(id: String, slot: MarqueeDynamicSlot)] = []
+    /// 跑马灯是否冻结，不改变视频请求本身的终态。
     private var paused = true
+    /// 暂停时冻结的累计秒数，从实际首次呈现开始计时。
     private var elapsed: TimeInterval = 0
+    /// 把单调主机时间映射为本轮跑马灯累计时间的偏移。
     private var hostTimeOffset: TimeInterval = 0
     /// 首帧真正 present 且带有文字槽位后再锁存时钟，避免 GPU 等待把起步停顿吃掉。
     private var clockLatched = false
+    /// 本次配置的正滑动速度，单位 pt/s。
     private var speed: CGFloat = MarqueeLayout.defaultSpeed
+    /// 本次配置的每圈起步停顿秒数。
     private var startDelay: TimeInterval = MarqueeLayout.defaultStartDelay
 
     /// 从 snapshot 收集 marquee 槽位。无跑马灯时后续为空操作。
@@ -179,6 +188,7 @@ final class MarqueeDynamicPlayback {
         }
     }
 
+    /// 返回冻结或正在运行的累计时间，不重启视频媒体时钟。
     private func currentElapsed() -> TimeInterval {
         if paused || !clockLatched { return elapsed }
         return CACurrentMediaTime() - hostTimeOffset

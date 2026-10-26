@@ -1,7 +1,7 @@
 import Foundation
 
 /// 标识一次 PlaybackSession。parser / decode / dynamic / Metal 回调都必须携带并核对。
-enum SessionToken: Equatable {
+enum SessionToken: Sendable, Hashable {
     case value(UInt64)
 
     /// 生成非 0 随机 token。新 session 递增/换新后，旧回调全部丢弃。

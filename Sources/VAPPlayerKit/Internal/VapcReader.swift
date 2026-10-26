@@ -52,12 +52,14 @@ enum ResolvedAssetMode: Sendable, Equatable {
 
 /// vapc `frame` 数组里的一帧及其 attachments。
 struct VapcFrame: Sendable {
+    /// 素材中的零基帧序号，只用于动态 attachment 查询。
     let index: Int
+    /// 该帧上的已校验动态覆盖层，顺序按素材 zIndex 决定。
     let attachments: [VapcAttachment]
 }
 
 /// 解析后的 vapc 不可变文档。
-struct VapcDocument {
+struct VapcDocument: Sendable {
     /// 已确定的 packed VAP 或普通视频布局。
     let assetMode: ResolvedAssetMode
     /// vapc 版本。未知版本必须失败，不能静默猜测。
@@ -88,8 +90,11 @@ final class VapcReader {
     static let maximumJSONSize = 8 * 1_024 * 1_024
     /// 单个尺寸字段上限，防止异常 JSON 申请超大纹理。
     private let maximumDimension: CGFloat = 16_384
+    /// 单素材动态 source 数量上限，避免配置无界增长。
     private let maximumSources = 256
+    /// 可接受的有限帧数上限，不以任意默认值补损坏配置。
     private let maximumFrames = 100_000
+    /// 单帧覆盖层数量上限，限制解析和 GPU 提交工作量。
     private let maximumAttachmentsPerFrame = 256
 
     /// 解析 vapc box 的 JSON payload。所有数组、尺寸和 rect 在构造模型前完成上限校验。
@@ -124,12 +129,14 @@ final class VapcReader {
         let version: Int
         let frameCount: Int
         switch (hasVersion, hasFrameCount) {
+        // 完整结构按声明版本和帧数校验，不能用媒体估算覆盖损坏字段。
         case (true, true):
             version = try integer(info, "v")
             guard version == 1 || version == 2 else {
                 throw invalid("Unsupported version \(version).")
             }
             frameCount = try positiveInteger(info, "f", maximum: maximumFrames)
+        // 仅两个字段同时缺失才视作旧最小 VAPC，使用已核验的媒体帧数。
         case (false, false):
             guard let legacyFrameCount else {
                 throw invalid("Missing numeric field v.")
@@ -139,6 +146,7 @@ final class VapcReader {
             }
             version = 0
             frameCount = legacyFrameCount
+        // 只缺一项属于结构损坏，禁止静默走旧格式回退。
         default:
             throw invalid("Legacy vapc must omit both v and f fields.")
         }

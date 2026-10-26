@@ -53,6 +53,9 @@
                ReferencedContainer = "container:SwiftExample.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference skipped="NO">
+            <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="0C154FAF3C080F062AAF9D6C" BuildableName="SwiftExampleTests.xctest" BlueprintName="SwiftExampleTests" ReferencedContainer="container:SwiftExample.xcodeproj" />
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

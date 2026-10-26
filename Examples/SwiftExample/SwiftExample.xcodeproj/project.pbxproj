@@ -22,6 +22,26 @@
 		11A0000000000000000000A3 /* Gifts in Resources */ = {isa = PBXBuildFile; fileRef = 11A0000000000000000000A2 /* Gifts */; };
 		11A0000000000000000000B4 /* SDWebImage in Frameworks */ = {isa = PBXBuildFile; productRef = 11A0000000000000000000B1 /* SDWebImage */; };
 		11A0000000000000000000B5 /* SDWebImageWebPCoder in Frameworks */ = {isa = PBXBuildFile; productRef = 11A0000000000000000000B3 /* SDWebImageWebPCoder */; };
+		1F45CC104237C345F82682BC /* PlaybackDetailViewController+Layout.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11A6A16AC3A89A262EDAE4B /* PlaybackDetailViewController+Layout.swift */; };
+		254EB4A313CA1907EC3E3D01 /* PlaybackDetailViewController+Smoke.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65E9E9B26F7714CE48845679 /* PlaybackDetailViewController+Smoke.swift */; };
+		DA2E79C529F8A4184BF8F942 /* SwiftUIPlaybackShowcase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12D74B649D1E77598F03BA8D /* SwiftUIPlaybackShowcase.swift */; };
+		860C93559F8D093D3D154504 /* VAPPlayerKitParserTests/LegacyPackedVAPDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63887B3B218275D8DAA78CC6; };
+		958FD87451E9201FCDA22FC9 /* VAPPlayerKitParserTests/VAPPlayerKitParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F09DFD5A2D3CEE6888EB7BA1; };
+		B6E51184655FC11520B04A4E /* VAPPlayerKitRendererTests/PackedAlphaShaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6237BCCE1D8086BFCB365405; };
+		E9D972743701771CA4584F78 /* VAPPlayerKitRendererTests/VAPPlayerKitRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 544F0DBFE6FD3DF1584AF136; };
+		206140B59B1920358CDC9D19 /* VAPPlayerKitTests/AssetMetadataCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C009DDFA9A06DC614267394; };
+		C416F6481BAA2BB9A3D22498 /* VAPPlayerKitTests/AudioCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1435584A8D6E55E1C4BFCF9; };
+		AD04F63D04063657AAF995BE /* VAPPlayerKitTests/PackedAlphaLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 109AFE899E30BD8788A647EA; };
+		D6D1E816EA5E1F8A86306991 /* VAPPlayerKitTests/PlaybackConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FB0D811B87CB64EC02D4C63; };
+		73B34C7EE16C9EFAA6A14F35 /* VAPPlayerKitTests/PlaybackMetadataValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 554D966C754FB03323FDBA3D; };
+		F8A165AFAE389887BEEDD9A8 /* VAPPlayerKitTests/PlaybackResourceLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B468C7BC2BB2FE80299DD1D3; };
+		474C72517585E0DB4F8195E3 /* VAPPlayerKitTests/VAPFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE8482369FFC73E97861C13A; };
+		C6BF2B367A3A22C1D8EFA4E0 /* VAPPlayerKitTests/VAPPlayerKitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 293B45AAE9B212B01AC6945A; };
+		C19A2937D6CF55AA28AAD6DF /* VAPPlayerKitTests/VAPPlayerViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDDD02B3DC12AC2DBEBFDFA3; };
+		BDC7EB40C71E4603C22357AD /* VAPPlayerKitTests/VAPSwiftUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7E1F1EA8D16D4FF3C8C2CA5; };
+		057B3D06A41A11056379AB10 /* VAPPlayerKitTimingTests/VAPPlayerKitTimingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7607CA88176384CA710B790; };
+		ED7FBB4BF4F0DAE054F7AF2A /* HostedTestBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4BEE1A51C09E6A6F6204BA9; };
+		EC753EFB83D6A80F951C01C4 /* VAPPlayerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 11A000000000000000000051; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -32,6 +52,7 @@
 			remoteGlobalIDString = 11A000000000000000000002;
 			remoteInfo = SwiftExample;
 		};
+		60C2034DB4F4E85397C83ABA = {isa = PBXContainerItemProxy; containerPortal = 11A000000000000000000001; proxyType = 1; remoteGlobalIDString = 11A000000000000000000002; remoteInfo = SwiftExample; };
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
@@ -50,6 +71,26 @@
 		11A00000000000000000009B /* BatchTestViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchTestViewController.swift; sourceTree = "<group>"; };
 		11A0000000000000000000A0 /* GiftCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GiftCatalog.swift; sourceTree = "<group>"; };
 		11A0000000000000000000A2 /* Gifts */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Gifts; path = ../Shared/Gifts; sourceTree = "<group>"; };
+		F11A6A16AC3A89A262EDAE4B /* PlaybackDetailViewController+Layout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackDetailViewController+Layout.swift"; sourceTree = "<group>"; };
+		65E9E9B26F7714CE48845679 /* PlaybackDetailViewController+Smoke.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackDetailViewController+Smoke.swift"; sourceTree = "<group>"; };
+		12D74B649D1E77598F03BA8D /* SwiftUIPlaybackShowcase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SwiftUIPlaybackShowcase.swift"; sourceTree = "<group>"; };
+		63887B3B218275D8DAA78CC6 /* VAPPlayerKitParserTests/LegacyPackedVAPDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VAPPlayerKitParserTests/LegacyPackedVAPDetectorTests.swift"; sourceTree = "<group>"; };
+		F09DFD5A2D3CEE6888EB7BA1 /* VAPPlayerKitParserTests/VAPPlayerKitParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VAPPlayerKitParserTests/VAPPlayerKitParserTests.swift"; sourceTree = "<group>"; };
+		6237BCCE1D8086BFCB365405 /* VAPPlayerKitRendererTests/PackedAlphaShaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VAPPlayerKitRendererTests/PackedAlphaShaderTests.swift"; sourceTree = "<group>"; };
+		544F0DBFE6FD3DF1584AF136 /* VAPPlayerKitRendererTests/VAPPlayerKitRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VAPPlayerKitRendererTests/VAPPlayerKitRendererTests.swift"; sourceTree = "<group>"; };
+		4C009DDFA9A06DC614267394 /* VAPPlayerKitTests/AssetMetadataCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VAPPlayerKitTests/AssetMetadataCacheTests.swift"; sourceTree = "<group>"; };
+		D1435584A8D6E55E1C4BFCF9 /* VAPPlayerKitTests/AudioCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VAPPlayerKitTests/AudioCoordinatorTests.swift"; sourceTree = "<group>"; };
+		109AFE899E30BD8788A647EA /* VAPPlayerKitTests/PackedAlphaLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VAPPlayerKitTests/PackedAlphaLayoutTests.swift"; sourceTree = "<group>"; };
+		6FB0D811B87CB64EC02D4C63 /* VAPPlayerKitTests/PlaybackConfigurationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VAPPlayerKitTests/PlaybackConfigurationTests.swift"; sourceTree = "<group>"; };
+		554D966C754FB03323FDBA3D /* VAPPlayerKitTests/PlaybackMetadataValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VAPPlayerKitTests/PlaybackMetadataValidationTests.swift"; sourceTree = "<group>"; };
+		B468C7BC2BB2FE80299DD1D3 /* VAPPlayerKitTests/PlaybackResourceLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VAPPlayerKitTests/PlaybackResourceLifecycleTests.swift"; sourceTree = "<group>"; };
+		AE8482369FFC73E97861C13A /* VAPPlayerKitTests/VAPFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VAPPlayerKitTests/VAPFixture.swift"; sourceTree = "<group>"; };
+		293B45AAE9B212B01AC6945A /* VAPPlayerKitTests/VAPPlayerKitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VAPPlayerKitTests/VAPPlayerKitTests.swift"; sourceTree = "<group>"; };
+		BDDD02B3DC12AC2DBEBFDFA3 /* VAPPlayerKitTests/VAPPlayerViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VAPPlayerKitTests/VAPPlayerViewTests.swift"; sourceTree = "<group>"; };
+		A7E1F1EA8D16D4FF3C8C2CA5 /* VAPPlayerKitTests/VAPSwiftUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VAPPlayerKitTests/VAPSwiftUITestSupport.swift"; sourceTree = "<group>"; };
+		E7607CA88176384CA710B790 /* VAPPlayerKitTimingTests/VAPPlayerKitTimingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VAPPlayerKitTimingTests/VAPPlayerKitTimingTests.swift"; sourceTree = "<group>"; };
+		A4BEE1A51C09E6A6F6204BA9 /* HostedTestBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostedTestBundle.swift"; sourceTree = "<group>"; };
+		7DC24E739E8062D8EAA2AF2A /* SwiftExampleTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = SwiftExampleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -70,6 +111,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		9D9030E30B147867806A407E /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (EC753EFB83D6A80F951C01C4,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -78,6 +120,7 @@
 			children = (
 				11A000000000000000000022 /* SwiftExample */,
 				11A000000000000000000095 /* SwiftExampleUITests */,
+				5EEEE05A95EFFD370BE3AA5C /* Hosted Tests */,
 				11A000000000000000000080 /* VAP */,
 				11A0000000000000000000A2 /* Gifts */,
 				11A000000000000000000021 /* Products */,
@@ -89,6 +132,7 @@
 			children = (
 				11A000000000000000000003 /* SwiftExample.app */,
 				11A000000000000000000089 /* SwiftExampleUITests.xctest */,
+				7DC24E739E8062D8EAA2AF2A /* SwiftExampleTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -101,6 +145,9 @@
 				11A000000000000000000032 /* ViewController.swift */,
 				11A000000000000000000082 /* FixtureCatalog.swift */,
 				11A000000000000000000083 /* PlaybackDetailViewController.swift */,
+				12D74B649D1E77598F03BA8D /* SwiftUIPlaybackShowcase.swift */,
+				65E9E9B26F7714CE48845679 /* PlaybackDetailViewController+Smoke.swift */,
+				F11A6A16AC3A89A262EDAE4B /* PlaybackDetailViewController+Layout.swift */,
 				11A000000000000000000084 /* PlaybackDiagnostics.swift */,
 				11A00000000000000000009B /* BatchTestViewController.swift */,
 				11A0000000000000000000A0 /* GiftCatalog.swift */,
@@ -116,6 +163,30 @@
 				11A000000000000000000088 /* SwiftExampleUITests.swift */,
 			);
 			path = SwiftExampleUITests;
+			sourceTree = "<group>";
+		};
+		5EEEE05A95EFFD370BE3AA5C /* Hosted Tests */ = {
+			isa = PBXGroup;
+			children = (
+				63887B3B218275D8DAA78CC6 /* VAPPlayerKitParserTests/LegacyPackedVAPDetectorTests.swift */,
+				F09DFD5A2D3CEE6888EB7BA1 /* VAPPlayerKitParserTests/VAPPlayerKitParserTests.swift */,
+				6237BCCE1D8086BFCB365405 /* VAPPlayerKitRendererTests/PackedAlphaShaderTests.swift */,
+				544F0DBFE6FD3DF1584AF136 /* VAPPlayerKitRendererTests/VAPPlayerKitRendererTests.swift */,
+				4C009DDFA9A06DC614267394 /* VAPPlayerKitTests/AssetMetadataCacheTests.swift */,
+				D1435584A8D6E55E1C4BFCF9 /* VAPPlayerKitTests/AudioCoordinatorTests.swift */,
+				109AFE899E30BD8788A647EA /* VAPPlayerKitTests/PackedAlphaLayoutTests.swift */,
+				6FB0D811B87CB64EC02D4C63 /* VAPPlayerKitTests/PlaybackConfigurationTests.swift */,
+				554D966C754FB03323FDBA3D /* VAPPlayerKitTests/PlaybackMetadataValidationTests.swift */,
+				B468C7BC2BB2FE80299DD1D3 /* VAPPlayerKitTests/PlaybackResourceLifecycleTests.swift */,
+				AE8482369FFC73E97861C13A /* VAPPlayerKitTests/VAPFixture.swift */,
+				293B45AAE9B212B01AC6945A /* VAPPlayerKitTests/VAPPlayerKitTests.swift */,
+				BDDD02B3DC12AC2DBEBFDFA3 /* VAPPlayerKitTests/VAPPlayerViewTests.swift */,
+				A7E1F1EA8D16D4FF3C8C2CA5 /* VAPPlayerKitTests/VAPSwiftUITestSupport.swift */,
+				E7607CA88176384CA710B790 /* VAPPlayerKitTimingTests/VAPPlayerKitTimingTests.swift */,
+				A4BEE1A51C09E6A6F6204BA9 /* HostedTestBundle.swift */,
+			);
+			name = "Hosted Tests";
+			path = ../../Tests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -163,6 +234,18 @@
 			productReference = 11A000000000000000000089 /* SwiftExampleUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		0C154FAF3C080F062AAF9D6C /* SwiftExampleTests */ = {
+            isa = PBXNativeTarget;
+            buildConfigurationList = 9891B29AE28058E6A32E464E;
+            buildPhases = (1AD9BBFC3D4A57ADE76CE508, 9D9030E30B147867806A407E, 87D29EE966AA8CB52D0DA2FD,);
+            buildRules = ();
+            dependencies = (A83F4DDFDBEB040C5EF0318A,);
+            name = SwiftExampleTests;
+            packageProductDependencies = (11A000000000000000000051,);
+            productName = SwiftExampleTests;
+            productReference = 7DC24E739E8062D8EAA2AF2A;
+            productType = "com.apple.product-type.bundle.unit-test";
+        };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -202,6 +285,7 @@
 			targets = (
 				11A000000000000000000002 /* SwiftExample */,
 				11A000000000000000000096 /* SwiftExampleUITests */,
+				0C154FAF3C080F062AAF9D6C /* SwiftExampleTests */,
 			);
 		};
 /* End PBXProject section */
@@ -224,6 +308,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		87D29EE966AA8CB52D0DA2FD /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -236,6 +321,9 @@
 				11A000000000000000000042 /* ViewController.swift in Sources */,
 				11A000000000000000000085 /* FixtureCatalog.swift in Sources */,
 				11A000000000000000000086 /* PlaybackDetailViewController.swift in Sources */,
+				DA2E79C529F8A4184BF8F942 /* SwiftUIPlaybackShowcase.swift in Sources */,
+				254EB4A313CA1907EC3E3D01 /* PlaybackDetailViewController+Smoke.swift in Sources */,
+				1F45CC104237C345F82682BC /* PlaybackDetailViewController+Layout.swift in Sources */,
 				11A000000000000000000087 /* PlaybackDiagnostics.swift in Sources */,
 				11A00000000000000000009C /* BatchTestViewController.swift in Sources */,
 				11A0000000000000000000A1 /* GiftCatalog.swift in Sources */,
@@ -250,6 +338,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		1AD9BBFC3D4A57ADE76CE508 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
+				860C93559F8D093D3D154504 /* VAPPlayerKitParserTests/LegacyPackedVAPDetectorTests.swift in Sources */,
+				958FD87451E9201FCDA22FC9 /* VAPPlayerKitParserTests/VAPPlayerKitParserTests.swift in Sources */,
+				B6E51184655FC11520B04A4E /* VAPPlayerKitRendererTests/PackedAlphaShaderTests.swift in Sources */,
+				E9D972743701771CA4584F78 /* VAPPlayerKitRendererTests/VAPPlayerKitRendererTests.swift in Sources */,
+				206140B59B1920358CDC9D19 /* VAPPlayerKitTests/AssetMetadataCacheTests.swift in Sources */,
+				C416F6481BAA2BB9A3D22498 /* VAPPlayerKitTests/AudioCoordinatorTests.swift in Sources */,
+				AD04F63D04063657AAF995BE /* VAPPlayerKitTests/PackedAlphaLayoutTests.swift in Sources */,
+				D6D1E816EA5E1F8A86306991 /* VAPPlayerKitTests/PlaybackConfigurationTests.swift in Sources */,
+				73B34C7EE16C9EFAA6A14F35 /* VAPPlayerKitTests/PlaybackMetadataValidationTests.swift in Sources */,
+				F8A165AFAE389887BEEDD9A8 /* VAPPlayerKitTests/PlaybackResourceLifecycleTests.swift in Sources */,
+				474C72517585E0DB4F8195E3 /* VAPPlayerKitTests/VAPFixture.swift in Sources */,
+				C6BF2B367A3A22C1D8EFA4E0 /* VAPPlayerKitTests/VAPPlayerKitTests.swift in Sources */,
+				C19A2937D6CF55AA28AAD6DF /* VAPPlayerKitTests/VAPPlayerViewTests.swift in Sources */,
+				BDC7EB40C71E4603C22357AD /* VAPPlayerKitTests/VAPSwiftUITestSupport.swift in Sources */,
+				057B3D06A41A11056379AB10 /* VAPPlayerKitTimingTests/VAPPlayerKitTimingTests.swift in Sources */,
+				ED7FBB4BF4F0DAE054F7AF2A /* HostedTestBundle.swift in Sources */,
+			); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -258,6 +364,7 @@
 			target = 11A000000000000000000002 /* SwiftExample */;
 			targetProxy = 11A000000000000000000091 /* PBXContainerItemProxy */;
 		};
+		A83F4DDFDBEB040C5EF0318A = {isa = PBXTargetDependency; target = 11A000000000000000000002; targetProxy = 60C2034DB4F4E85397C83ABA; };
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -305,7 +412,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -359,7 +466,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
@@ -390,7 +497,7 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.4;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -418,7 +525,7 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.4;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -429,7 +536,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = 6T8UP29CAY;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -440,7 +547,7 @@
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.4;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = SwiftExample;
 			};
@@ -452,7 +559,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = 6T8UP29CAY;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -463,12 +570,50 @@
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.4;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = SwiftExample;
 			};
 			name = Release;
 		};
+        840717F801677C27C782B93B /* Debug */ = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                BUNDLE_LOADER = "$(TEST_HOST)";
+                CODE_SIGN_STYLE = Automatic;
+                DEVELOPMENT_TEAM = 6T8UP29CAY;
+                GENERATE_INFOPLIST_FILE = YES;
+                IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+                LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@loader_path/Frameworks",);
+                PRODUCT_BUNDLE_IDENTIFIER = com.vapplayerkit.SwiftExampleTests;
+                PRODUCT_NAME = "$(TARGET_NAME)";
+                SDKROOT = iphoneos;
+                SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+                SWIFT_VERSION = 6.4;
+                TARGETED_DEVICE_FAMILY = "1,2";
+                TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SwiftExample.app/SwiftExample";
+            };
+            name = Debug;
+        };
+        D2F3D0BDE1D7E67F90F48664 /* Release */ = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                BUNDLE_LOADER = "$(TEST_HOST)";
+                CODE_SIGN_STYLE = Automatic;
+                DEVELOPMENT_TEAM = 6T8UP29CAY;
+                GENERATE_INFOPLIST_FILE = YES;
+                IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+                LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@loader_path/Frameworks",);
+                PRODUCT_BUNDLE_IDENTIFIER = com.vapplayerkit.SwiftExampleTests;
+                PRODUCT_NAME = "$(TARGET_NAME)";
+                SDKROOT = iphoneos;
+                SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+                SWIFT_VERSION = 6.4;
+                TARGETED_DEVICE_FAMILY = "1,2";
+                TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SwiftExample.app/SwiftExample";
+            };
+            name = Release;
+        };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -499,6 +644,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		9891B29AE28058E6A32E464E = {isa = XCConfigurationList; buildConfigurations = (840717F801677C27C782B93B, D2F3D0BDE1D7E67F90F48664,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */

@@ -7,7 +7,9 @@ import CoreGraphics
 ///
 /// 负值表示 Alpha 内容相对 RGB 更靠近原点（左右分割时更靠上，上下分割时更靠左）。
 struct LegacyPackedLayout: Equatable {
+    /// Alpha 区域位于编码帧哪一侧；检测结果不会使用 none。
     let alphaMode: AlphaMode
+    /// 两半内容在延伸方向上的像素位移；零表示可直接对齐采样。
     let alphaOffset: Int
 }
 
@@ -18,36 +20,20 @@ struct LegacyPackedLayout: Equatable {
 /// 这只是兼容历史文件的内容特征检测，不是格式证明。若普通视频本身恰好满足这些
 /// 特征，宿主可通过 PlaybackOptions.assetMode 强制 `.ordinaryVideo`。
 enum LegacyPackedVAPDetector {
-    private struct SampleStats {
-        let maximumAlphaChroma: Double
-        let maximumRGBChroma: Double
-        let rgbChroma: Double
-        let alphaMean: Double
-        let rgbMean: Double
-        let rgbVariance: Double
-        let correlation: Double
-        let alphaVariance: Double
-    }
-
-    private struct Split {
-        let mode: AlphaMode
-        let alphaOrigin: (x: Int, y: Int)
-        let rgbOrigin: (x: Int, y: Int)
-        let width: Int
-        let height: Int
-    }
-
-    private static let maximumNeutralChroma = 4.0
-    // Some legacy files use independently authored Alpha and RGB animations. In
-    // those files luma correlation is not reliable, and the RGB half may still
-    // be dark or nearly monochrome. A strong luma contrast is an additional
-    // signal for that case.
-    private static let minimumIndependentRGBChroma = 32.0
-    private static let minimumLumaCorrelation = 0.65
-    private static let maximumFlatAlphaVariance = 4.0
-    private static let minimumFlatRGBChroma = 16.0
-    private static let minimumRGBLumaVariance = 64.0
-    private static let minimumAlphaRGBMeanDifference = 24.0
+    /// 允许的 Alpha 最大色度偏差；任何明显彩色采样都会否决候选。
+    static let maximumNeutralChroma = 4.0
+    /// Alpha 与 RGB 独立制作时，足够强的 RGB 色度可补充亮度相关证据。
+    static let minimumIndependentRGBChroma = 32.0
+    /// 对齐候选至少达到的亮度相关系数。
+    static let minimumLumaCorrelation = 0.65
+    /// Alpha 方差低于此值时按平坦遮罩检查。
+    static let maximumFlatAlphaVariance = 4.0
+    /// 平坦遮罩旁的 RGB 至少具备的平均色度。
+    static let minimumFlatRGBChroma = 16.0
+    /// 借助亮度反差判型时，RGB 至少具备的亮度方差。
+    static let minimumRGBLumaVariance = 64.0
+    /// 借助亮度反差判型时，两半均值至少相差的亮度值。
+    static let minimumAlphaRGBMeanDifference = 24.0
     /// 错位至少要跨过若干像素，避免把采样噪声当成第二种布局。
     private static let minimumAbsoluteContentShift = 8
     /// 错位后仍须留下过半画面，避免把无关条带配成 Alpha。
@@ -57,10 +43,12 @@ enum LegacyPackedVAPDetector {
     private static let minimumShiftedLumaCorrelation = 0.85
     /// 错位相关性必须明显高于零位移，避免普通画面的弱相似被裁开。
     private static let minimumShiftCorrelationGain = 0.40
-    // Probe order is intentionally fixed: A (20%), B (50%), C (70%).
+    /// 固定按总时长的 20%、50%、70% 探测；首个可靠结果立即结束后续探测。
     private static let detectionPercentages: [Double] = [0.20, 0.50, 0.70]
 
+    /// 根据整个素材的时长生成探测时刻；无效时长没有可安全读取的时刻。
     static func probeTimes(for duration: TimeInterval) -> [TimeInterval] {
+        // NaN、无穷或非正时长不能传入 reader 的时间范围。
         guard duration.isFinite, duration > 0 else { return [] }
         return detectionPercentages.map { duration * $0 }
     }
@@ -76,21 +64,20 @@ enum LegacyPackedVAPDetector {
         track: AVAssetTrack,
         encodedVideoSize: CGSize,
         duration: TimeInterval
-    ) -> LegacyPackedLayout? {
+    ) async -> LegacyPackedLayout? {
         let width = Int(encodedVideoSize.width)
         let height = Int(encodedVideoSize.height)
+        // 缺少有效画布或时长时只放弃启发式识别，交回普通视频路径。
         guard width > 0, height > 0, duration.isFinite, duration > 0 else { return nil }
 
         do {
-            let trackRange = track.timeRange
+            let trackRange = try await track.load(.timeRange)
             let trackDuration = CMTimeGetSeconds(trackRange.duration)
+            // 视频轨没有有效范围时不能按素材总时长构造采样窗口。
             guard trackDuration.isFinite, trackDuration > 0 else { return nil }
 
-            // A single sample is read for each percentage. The small range gives
-            // AVAssetReader room to return the frame at/just after a timestamp
-            // that is not exactly aligned to the track's frame duration, while
-            // the detector itself examines only that one returned frame.
-            let nominalFrameRate = Double(track.nominalFrameRate)
+            // 时刻未必落在帧边界；窗口允许 reader 找到其后第一帧，但每次只分析一帧。
+            let nominalFrameRate = Double(try await track.load(.nominalFrameRate))
             let frameWindow = max(
                 1.0 / 30.0,
                 nominalFrameRate > 0 ? 1.0 / nominalFrameRate : 1.0 / 30.0
@@ -108,14 +95,12 @@ enum LegacyPackedVAPDetector {
                 try? detect(asset: asset, track: track, timeRange: range)
             }
         } catch {
-            // Automatic detection must not make an otherwise decodable ordinary MP4 fail.
+            // 可选自动识别失败不应阻止原本可播放的普通 MP4，由外层处理取消与资源错误。
             return nil
         }
     }
 
-    /// Builds and evaluates the A/B/C probe schedule. Kept separate so the
-    /// timestamp policy and its short-circuit behavior can be regression-tested
-    /// without opening a decoder.
+    /// 按固定顺序执行探测，首个可靠结果即返回；独立入口便于不创建 decoder 测试时间策略。
     static func firstMatchingMode(
         duration: TimeInterval,
         trackRange: CMTimeRange,
@@ -123,22 +108,24 @@ enum LegacyPackedVAPDetector {
         sampleDetector: (CMTimeRange) -> LegacyPackedLayout?
     ) -> LegacyPackedLayout? {
         for targetSeconds in probeTimes(for: duration) {
-            // The percentage is relative to the asset timeline (which starts
-            // at zero), not relative to the video track's start or duration.
+            // 百分比相对从零开始的素材时间轴，不相对视频轨起点或轨道自身时长。
             let target = CMTime(
                 seconds: targetSeconds,
                 preferredTimescale: 600
             )
+            // 有些轨道晚于素材开始；落在轨道外的探测点直接跳过，不挪动原定百分比。
             guard CMTimeCompare(target, trackRange.start) >= 0,
                   CMTimeCompare(target, trackRange.end) < 0
             else { continue }
             let availableDuration = CMTimeSubtract(trackRange.end, target)
+            // 尾部不足以读取时不构造零长或负长的 reader 区间。
             guard CMTimeCompare(availableDuration, .zero) > 0 else { continue }
 
             let range = CMTimeRange(
                 start: target,
                 duration: min(readDuration, availableDuration)
             )
+            // 已有明确方向后停止，不让后续空白帧否定先前证据。
             if let mode = sampleDetector(range) {
                 return mode
             }
@@ -146,6 +133,7 @@ enum LegacyPackedVAPDetector {
         return nil
     }
 
+    /// 只读取指定短窗口的第一帧；无法建立输出或取帧时返回 nil，reader 初始化失败向外抛出。
     private static func detect(
         asset: AVAsset,
         track: AVAssetTrack,
@@ -161,8 +149,10 @@ enum LegacyPackedVAPDetector {
             ]
         )
         output.alwaysCopiesSampleData = false
+        // 不支持该轨道输出时放弃此探测点，不改变后续播放的解码配置。
         guard reader.canAdd(output) else { return nil }
         reader.add(output)
+        // 空窗口或解码失败没有判型证据，由后续探测点继续尝试。
         guard reader.startReading(),
               let sample = output.copyNextSampleBuffer(),
               let pixelBuffer = CMSampleBufferGetImageBuffer(sample)
@@ -170,7 +160,9 @@ enum LegacyPackedVAPDetector {
         return detect(pixelBuffer: pixelBuffer)
     }
 
+    /// 检查一帧 NV12 像素的唯一可信布局；只临时只读锁定，不修改或保存调用方缓冲区。
     static func detect(pixelBuffer: CVPixelBuffer) -> LegacyPackedLayout? {
+        // 无法锁定时不可读取底层指针；成功路径用 defer 对称解锁。
         guard CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else {
             return nil
         }
@@ -178,6 +170,7 @@ enum LegacyPackedVAPDetector {
 
         let width = CVPixelBufferGetWidthOfPlane(pixelBuffer, 0)
         let height = CVPixelBufferGetHeightOfPlane(pixelBuffer, 0)
+        // 缺少亮度或色度平面时不对不完整数据猜测透明布局。
         guard width > 0, height > 0,
               let yBase = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0),
               let uvBase = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 1)
@@ -189,6 +182,7 @@ enum LegacyPackedVAPDetector {
         let uvBytesPerRow = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 1)
         let uvWidth = CVPixelBufferGetWidthOfPlane(pixelBuffer, 1)
         let uvHeight = CVPixelBufferGetHeightOfPlane(pixelBuffer, 1)
+        // 色度寻址需要至少一个有效采样块。
         guard uvWidth > 0, uvHeight > 0 else { return nil }
 
         let splits = [
@@ -222,25 +216,24 @@ enum LegacyPackedVAPDetector {
             )
         ].filter { split in
             switch split.mode {
+            // 左右候选共享等宽约束；仅 legacy 探测要求切分轴可对半。
             case .left, .right:
                 return width >= 2 && width % 2 == 0
+            // 上下候选共享等高约束，与显式矩形允许奇数边界的合同不同。
             case .top, .bottom:
                 return height >= 2 && height % 2 == 0
+            // 无 Alpha 不是待检测的拼接候选。
             case .none:
                 return false
             }
         }
 
-        // Spatially related Alpha/RGB detail is stronger evidence than a flat
-        // black band. In particular, letterboxing can also satisfy the fallback
-        // mean-difference test on the perpendicular axis of a genuine packed VAP.
-        // Prefer a unique correlated candidate, checking the common left layout
-        // first. Repeated grayscale content can correlate in multiple directions,
-        // so even strong evidence must be unique before we crop the frame.
-        // Accept a fallback only if there is no strong candidate and it is unique.
+        // 对应轮廓比黑边的亮度反差更可靠；多方向命中仍有歧义，不能据此裁开普通视频。
+        // 强相关候选优先；只有完全没有强候选且弱候选唯一时才采用后备结果。
         var correlatedModes: [AlphaMode] = []
         var fallbackModes: [AlphaMode] = []
         for split in splits {
+            // 统计不足或色度/亮度证据不成立时，此方向不参与唯一性判定。
             guard let stats = stats(
                 for: split,
                 y: y,
@@ -250,16 +243,20 @@ enum LegacyPackedVAPDetector {
                 uvWidth: uvWidth,
                 uvHeight: uvHeight
             ), isMatch(stats) else { continue }
+            // 相关轮廓属于强证据；单纯色度或亮度反差留作后备，不能挤掉强证据。
             if stats.correlation >= minimumLumaCorrelation {
                 correlatedModes.append(split.mode)
             } else {
+                // 已通过 isMatch 的弱证据只在没有强候选时使用。
                 fallbackModes.append(split.mode)
             }
         }
+        // 多个强方向同样可能来自灰度重复画面，宁可保留普通视频也不任选方向。
         if !correlatedModes.isEmpty {
             guard correlatedModes.count == 1, let mode = correlatedModes.first else { return nil }
             return LegacyPackedLayout(alphaMode: mode, alphaOffset: 0)
         }
+        // 后备方向也必须唯一，避免把黑边误作透明半幅。
         if !fallbackModes.isEmpty {
             guard fallbackModes.count == 1, let mode = fallbackModes.first else { return nil }
             return LegacyPackedLayout(alphaMode: mode, alphaOffset: 0)
@@ -272,125 +269,6 @@ enum LegacyPackedVAPDetector {
             uvBytesPerRow: uvBytesPerRow,
             uvWidth: uvWidth,
             uvHeight: uvHeight
-        )
-    }
-
-    private static func stats(
-        for split: Split,
-        y: UnsafePointer<UInt8>,
-        yBytesPerRow: Int,
-        uv: UnsafePointer<UInt8>,
-        uvBytesPerRow: Int,
-        uvWidth: Int,
-        uvHeight: Int,
-        shift: Int = 0
-    ) -> SampleStats? {
-        guard split.width > 0, split.height > 0 else { return nil }
-
-        let stepX = max(1, split.width / 32)
-        let stepY = max(1, split.height / 32)
-        var values: [(Double, Double)] = []
-
-        var alphaChromas: [Double] = []
-        var rgbChroma = 0.0
-        var rgbChromaCount = 0
-        var maximumRGBChroma = 0.0
-        for localY in stride(from: 0, to: split.height, by: stepY) {
-            let rgbY = split.rgbOrigin.y + localY
-            for localX in stride(from: 0, to: split.width, by: stepX) {
-                var alphaX = split.alphaOrigin.x + localX
-                var alphaY = split.alphaOrigin.y + localY
-                let rgbX = split.rgbOrigin.x + localX
-                switch split.mode {
-                case .left, .right:
-                    alphaY += shift
-                case .top, .bottom:
-                    alphaX += shift
-                case .none:
-                    break
-                }
-                let shiftedAlphaX = alphaX - split.alphaOrigin.x
-                let shiftedAlphaY = alphaY - split.alphaOrigin.y
-                guard shiftedAlphaX >= 0, shiftedAlphaY >= 0,
-                      shiftedAlphaX < split.width, shiftedAlphaY < split.height else {
-                    continue
-                }
-                // NV12 chroma covers a 2x2 luma block. Do not let a block
-                // straddling the Alpha/RGB split contaminate either region's
-                // chroma statistic, especially for odd top/bottom dimensions.
-                if containsChromaBlock(
-                    atX: alphaX,
-                    y: alphaY,
-                    origin: split.alphaOrigin,
-                    width: split.width,
-                    height: split.height
-                ) {
-                    alphaChromas.append(chroma(
-                        atX: alphaX,
-                        y: alphaY,
-                        uv: uv,
-                        bytesPerRow: uvBytesPerRow,
-                        width: uvWidth,
-                        height: uvHeight
-                    ))
-                }
-                if containsChromaBlock(
-                    atX: rgbX,
-                    y: rgbY,
-                    origin: split.rgbOrigin,
-                    width: split.width,
-                    height: split.height
-                ) {
-                    let sampleChroma = chroma(
-                        atX: rgbX,
-                        y: rgbY,
-                        uv: uv,
-                        bytesPerRow: uvBytesPerRow,
-                        width: uvWidth,
-                        height: uvHeight
-                    )
-                    rgbChroma += sampleChroma
-                    maximumRGBChroma = max(maximumRGBChroma, sampleChroma)
-                    rgbChromaCount += 1
-                }
-                values.append((
-                    Double(y[alphaY * yBytesPerRow + alphaX]),
-                    Double(y[rgbY * yBytesPerRow + rgbX])
-                ))
-            }
-        }
-
-        guard values.count >= 16, !alphaChromas.isEmpty, rgbChromaCount > 0 else { return nil }
-        let count = Double(values.count)
-        let leftMean = values.reduce(0.0) { $0 + $1.0 } / count
-        let rightMean = values.reduce(0.0) { $0 + $1.1 } / count
-        guard let maximumAlphaChroma = alphaChromas.max() else { return nil }
-        var leftCentered = 0.0
-        var rightCentered = 0.0
-        var cross = 0.0
-        for (left, right) in values {
-            let leftDelta = left - leftMean
-            let rightDelta = right - rightMean
-            leftCentered += leftDelta * leftDelta
-            rightCentered += rightDelta * rightDelta
-            cross += leftDelta * rightDelta
-        }
-        let rgbVariance = rightCentered / count
-        let correlation: Double
-        if leftCentered > 0.001, rightCentered > 0.001 {
-            correlation = cross / sqrt(leftCentered * rightCentered)
-        } else {
-            correlation = -1
-        }
-        return SampleStats(
-            maximumAlphaChroma: maximumAlphaChroma,
-            maximumRGBChroma: maximumRGBChroma,
-            rgbChroma: rgbChroma / Double(rgbChromaCount),
-            alphaMean: leftMean,
-            rgbMean: rightMean,
-            rgbVariance: rgbVariance,
-            correlation: correlation,
-            alphaVariance: leftCentered / count
         )
     }
 
@@ -410,6 +288,7 @@ enum LegacyPackedVAPDetector {
     ) -> LegacyPackedLayout? {
         var matches: [LegacyPackedLayout] = []
         for split in splits {
+            // 没有可靠投影位移的方向不再尝试用弱色度证据补齐。
             guard let shift = bestProfileShift(split: split, y: y, yBytesPerRow: yBytesPerRow) else {
                 continue
             }
@@ -432,6 +311,7 @@ enum LegacyPackedVAPDetector {
             }
             matches.append(LegacyPackedLayout(alphaMode: split.mode, alphaOffset: shift))
         }
+        // 不同方向同时命中仍有歧义，不能按遍历顺序裁切画面。
         return matches.count == 1 ? matches[0] : nil
     }
 
@@ -444,13 +324,16 @@ enum LegacyPackedVAPDetector {
         let vertical = split.mode == .left || split.mode == .right
         let length = vertical ? split.height : split.width
         let cross = vertical ? split.width : split.height
+        // 投影过短时位移相关性不稳定，不进入搜索。
         guard length >= 32, cross > 0 else { return nil }
         let maxShift = (Int(Double(length) * maximumShiftFraction) / 2) * 2
+        // 可搜索范围不足最小可信位移时，结果仍由对齐路径决定。
         guard maxShift >= minimumAbsoluteContentShift else { return nil }
 
         let step = max(1, cross / 48)
         var rgb = [Double](repeating: 0, count: length)
         var alpha = [Double](repeating: 0, count: length)
+        // 左右半幅按行求投影，寻找竖直方向的内容偏移。
         if vertical {
             for row in 0..<length {
                 var rgbSum = 0.0
@@ -465,6 +348,7 @@ enum LegacyPackedVAPDetector {
                 alpha[row] = alphaSum
             }
         } else {
+            // 上下半幅按列求投影，寻找水平方向的内容偏移。
             for column in 0..<length {
                 var rgbSum = 0.0
                 var alphaSum = 0.0
@@ -484,8 +368,10 @@ enum LegacyPackedVAPDetector {
         var best = zero
         var shift = -maxShift
         while shift <= maxShift {
+            // 零位移已经作为基线；这里只评估可带来额外证据的非零位移。
             if shift != 0 {
                 let value = profileCorrelation(rgb, alpha, shift: shift)
+                // 仅保留严格改善，相关度相等时不任意更换先前候选。
                 if value > best {
                     best = value
                     bestShift = shift
@@ -493,6 +379,7 @@ enum LegacyPackedVAPDetector {
             }
             shift += 2
         }
+        // 同时约束绝对相关度和相对提升，防止弱相似或采样噪声生成错误裁切。
         guard bestShift != 0,
               abs(bestShift) >= minimumAbsoluteContentShift,
               best >= minimumShiftedLumaCorrelation,
@@ -511,10 +398,12 @@ enum LegacyPackedVAPDetector {
         let vertical = split.mode == .left || split.mode == .right
         let length = vertical ? split.width : split.height
         let span = vertical ? split.height : split.width
+        // 交叉轴缺少足够采样宽度时不能证明两半属于同一轮廓。
         guard length >= 8, span > 0 else { return false }
         let step = max(1, span / 48)
         var rgb = [Double](repeating: 0, count: length)
         var alpha = [Double](repeating: 0, count: length)
+        // 竖直错位用横向投影复核，防止无关的半灰半彩图碰巧对齐。
         if vertical {
             for column in 0..<length {
                 var rgbSum = 0.0
@@ -529,6 +418,7 @@ enum LegacyPackedVAPDetector {
                 alpha[column] = alphaSum
             }
         } else {
+            // 水平错位用纵向投影复核，判据与另一方向对称。
             for row in 0..<length {
                 var rgbSum = 0.0
                 var alphaSum = 0.0
@@ -544,20 +434,25 @@ enum LegacyPackedVAPDetector {
         }
         let rgbHasDetail = profileHasDetail(rgb)
         let alphaHasDetail = profileHasDetail(alpha)
+        // 两侧交叉轴都无结构时没有反证，不能否决沿主轴已经成立的轮廓。
         if !rgbHasDetail, !alphaHasDetail {
             return true
         }
+        // 只有一侧存在结构时轮廓不相容；两侧都有细节才比较零位移相关性。
         guard rgbHasDetail, alphaHasDetail else { return false }
         return profileCorrelation(rgb, alpha, shift: 0) >= minimumLumaCorrelation
     }
 
+    /// 判断投影是否有足以计算相关性的结构；空数组或近常数投影均为 false。
     private static func profileHasDetail(_ values: [Double]) -> Bool {
+        // 空投影不是平坦遮罩的证据，避免除以零。
         guard !values.isEmpty else { return false }
         let mean = values.reduce(0, +) / Double(values.count)
         let variance = values.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(values.count)
         return variance > 1
     }
 
+    /// 在等长投影的重叠区计算相关度；样本或方差不足时以 -1 表示无可靠证据。
     private static func profileCorrelation(_ rgb: [Double], _ alpha: [Double], shift: Int) -> Double {
         let count = rgb.count
         var pairs = 0
@@ -565,11 +460,13 @@ enum LegacyPackedVAPDetector {
         var alphaSum = 0.0
         for index in 0..<count {
             let alphaIndex = index + shift
+            // 位移产生的非重叠区不能参与均值，否则会虚增亮度反差。
             guard alphaIndex >= 0, alphaIndex < count else { continue }
             rgbSum += rgb[index]
             alphaSum += alpha[alphaIndex]
             pairs += 1
         }
+        // 重叠过短时即便数值相关也不可靠，统一视为没有证据。
         guard pairs >= 16 else { return -1 }
         let rgbMean = rgbSum / Double(pairs)
         let alphaMean = alphaSum / Double(pairs)
@@ -578,6 +475,7 @@ enum LegacyPackedVAPDetector {
         var cross = 0.0
         for index in 0..<count {
             let alphaIndex = index + shift
+            // 方差与协方差必须使用前面计算均值时的同一重叠区。
             guard alphaIndex >= 0, alphaIndex < count else { continue }
             let rgbDelta = rgb[index] - rgbMean
             let alphaDelta = alpha[alphaIndex] - alphaMean
@@ -585,63 +483,10 @@ enum LegacyPackedVAPDetector {
             alphaCentered += alphaDelta * alphaDelta
             cross += rgbDelta * alphaDelta
         }
+        // 近常数投影不能作为相关性证据，也不能进入近零除法。
         guard rgbCentered > 0.001, alphaCentered > 0.001 else { return -1 }
         return cross / sqrt(rgbCentered * alphaCentered)
     }
 
-    private static func chroma(
-        atX x: Int,
-        y: Int,
-        uv: UnsafePointer<UInt8>,
-        bytesPerRow: Int,
-        width: Int,
-        height: Int
-    ) -> Double {
-        let uvRow = min(height - 1, max(0, y / 2))
-        let uvColumn = min(width - 1, max(0, x / 2))
-        let offset = uvRow * bytesPerRow + uvColumn * 2
-        return abs(Double(uv[offset]) - 128.0)
-            + abs(Double(uv[offset + 1]) - 128.0)
-    }
 
-    private static func containsChromaBlock(
-        atX x: Int,
-        y: Int,
-        origin: (x: Int, y: Int),
-        width: Int,
-        height: Int
-    ) -> Bool {
-        let blockX = (x / 2) * 2
-        let blockY = (y / 2) * 2
-        return blockX >= origin.x
-            && blockY >= origin.y
-            && blockX + 1 < origin.x + width
-            && blockY + 1 < origin.y + height
-    }
-
-    private static func isMatch(_ stats: SampleStats) -> Bool {
-        // A uniformly transparent (video-range black) region carries no mask
-        // detail and is indistinguishable from an ordinary video's black border.
-        // Let a later scheduled frame supply evidence instead of cropping it.
-        guard stats.correlation >= minimumLumaCorrelation
-                || stats.alphaVariance >= maximumFlatAlphaVariance || stats.alphaMean > 20 else {
-            return false
-        }
-
-        // The neutral Alpha plane is the key legacy signature. Most packed files
-        // also have related luma in both regions, but that is not guaranteed: the
-        // Alpha mask can animate independently from the RGB artwork. A strongly
-        // chromatic RGB region is therefore an independent packed-layout signal.
-        // The ordinary-video override remains available for the inherently
-        // ambiguous case where a normal video has the same visual composition.
-        let hasMatchedLuma = stats.correlation >= minimumLumaCorrelation
-            || (stats.alphaVariance < maximumFlatAlphaVariance
-                && stats.rgbChroma >= minimumFlatRGBChroma)
-            || stats.rgbChroma >= minimumIndependentRGBChroma
-            || (stats.rgbVariance >= minimumRGBLumaVariance
-                && abs(stats.alphaMean - stats.rgbMean) >= minimumAlphaRGBMeanDifference)
-        // Every sampled point in the candidate Alpha region must remain neutral.
-        // This rejects ordinary split-screen video with only a mostly-gray side.
-        return stats.maximumAlphaChroma <= maximumNeutralChroma && hasMatchedLuma
-    }
 }

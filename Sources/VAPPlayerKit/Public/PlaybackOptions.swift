@@ -1,109 +1,113 @@
 import UIKit
 
-/// 播放资源的编码布局。默认自动识别，宿主通常不需要区分普通 MP4 和 VAP。
-@objc(VPKPlaybackAssetMode)
-public enum PlaybackAssetMode: Int, Sendable {
-    /// 有 vapc 时按 VAP；无 vapc 时识别旧 packed VAP，否则按普通视频。
-    case automatic = 0
-    /// 强制按 VAP 处理。适用于已知的旧版无 vapc packed VAP。
-    case vap = 1
-    /// 强制按普通视频处理，使用完整编码画面且不生成 Alpha。
-    case ordinaryVideo = 2
+/// 资源解析策略；调用方明确选择后，播放期间不会再次猜测类型。
+public enum PlaybackAssetMode: Sendable, Hashable {
+    /// 优先解析 vapc；无 vapc 时检查旧拼接特征，无法确认则按普通视频处理。
+    case automatic
+    /// 明确播放 VAP；无 vapc 的旧素材沿用左侧 Alpha 布局。
+    case vap
+    /// 使用完整编码画面，不读取 vapc，也不生成 Alpha。
+    case ordinaryVideo
+    /// 使用调用方声明的整数矩形合成透明视频，不读取 vapc 或启发式布局。
+    case packedAlpha(PackedAlphaLayout)
 }
 
-/// 动态槽位图片的播放策略。对本次播放的全部图片槽位生效。
-@objc(VPKDynamicImagePlaybackMode)
-public enum DynamicImagePlaybackMode: Int, Sendable {
-    /// 动图、静图都只显示静图；若对象为动图则取第一帧。
-    case still = 0
-    /// 可动画图片播放动图，静图仍显示静图。默认。
-    case animated = 1
+/// 动态图片槽位是否推进其自身动画时间轴。
+public enum DynamicImagePlaybackMode: Sendable, Equatable {
+    /// 动图取首帧，普通图片保持静态。
+    case still
+    /// 具备动态图能力时播放，否则保留静态图片。
+    case animated
 }
 
-/// 动态文字放不下槽位时的溢出策略。对本次播放的全部文字槽位生效。
-@objc(VPKDynamicTextOverflowMode)
-public enum DynamicTextOverflowMode: Int, Sendable {
-    /// 单行尾部截断为 `…`。默认，兼容现有行为。
-    case truncate = 0
-    /// 单行从右向左跑马灯；能放下时仍静态居中。
-    case marquee = 1
+/// 动态文字宽于槽位时的布局策略。
+public enum DynamicTextOverflowMode: Sendable, Equatable {
+    /// 保持单行并在尾部截断。
+    case truncate
+    /// 仅超宽文字从右向左滚动，能放下时保持居中。
+    case marquee
 }
 
-/// 一次播放的可变配置。必须在 `play` / `prepare` 前设置；播放中修改副本不会影响当前 session。
-///
-/// `loopCount` 是总播放次数：`1` 播一次，`2` 播两次，`0` 无限循环。
-/// 这与 `vap-master` 里 `repeatCount`「额外重复次数」语义不同，不要按旧值直传。
-@objc(VPKPlaybackOptions)
-public final class PlaybackOptions: NSObject, NSCopying {
-    /// 普通 MP4 与 VAP 的识别策略。默认自动识别，所以上层只需要传 URL。
-    @objc public var assetMode: PlaybackAssetMode = .automatic
-    /// 总播放次数。`1` 播放一次，`2` 播放两次，`0` 无限循环。
-    @objc public var loopCount: Int = 1 {
-        didSet {
-            if loopCount < 0 { loopCount = 1 }
-        }
+/// 一次准备使用的值配置；播放器保存快照，后续修改调用方副本不会改变现有会话。
+public struct PlaybackOptions: Sendable, Equatable {
+    /// 解析策略，默认明确按 VAP 处理；自动识别必须显式选择。
+    public var assetMode: PlaybackAssetMode
+    /// 总播放次数；0 为无限，正数为总次数，负数由 validate 拒绝。
+    public var loopCount: Int
+    /// 逻辑画布的布局方式，只接受 fit、fill 与 stretch。
+    public var contentMode: UIView.ContentMode
+    /// 是否建立内嵌音轨资源；运行时静音由 PlayerView.isMuted 控制。
+    public var audioMode: AudioMode
+    /// 自然结束后是否移除当前画面并回收可释放的 GPU 资源。
+    public var clearsAfterFinish: Bool
+    /// 离窗、后台或无有效尺寸时挂起还是停止。
+    public var backgroundPolicy: BackgroundPolicy
+    /// 安全挂起原因消失后是否允许 SDK 自动恢复；统一播放器应设 false。
+    public var automaticallyResumesAfterSuspension: Bool
+    /// 动态图片槽位的静态/动画策略。
+    public var dynamicImagePlaybackMode: DynamicImagePlaybackMode
+    /// 动态文字超宽时截断或滚动。
+    public var dynamicTextOverflowMode: DynamicTextOverflowMode
+    /// 跑马灯速度，单位 pt/s，必须有限且大于 0。
+    public var marqueeSpeed: CGFloat
+    /// 每次跑马灯滚动前的停顿秒数，必须有限且非负。
+    public var marqueeStartDelay: TimeInterval
+
+    /// 创建配置快照；不执行 I/O，非法值由准备入口调用 validate 后抛出。
+    public init(
+        assetMode: PlaybackAssetMode = .vap,
+        loopCount: Int = 1,
+        contentMode: UIView.ContentMode = .scaleAspectFit,
+        audioMode: AudioMode = .embedded,
+        clearsAfterFinish: Bool = true,
+        backgroundPolicy: BackgroundPolicy = .suspend,
+        automaticallyResumesAfterSuspension: Bool = true,
+        dynamicImagePlaybackMode: DynamicImagePlaybackMode = .animated,
+        dynamicTextOverflowMode: DynamicTextOverflowMode = .truncate,
+        marqueeSpeed: CGFloat = 80,
+        marqueeStartDelay: TimeInterval = 0.6
+    ) {
+        self.assetMode = assetMode
+        self.loopCount = loopCount
+        self.contentMode = contentMode
+        self.audioMode = audioMode
+        self.clearsAfterFinish = clearsAfterFinish
+        self.backgroundPolicy = backgroundPolicy
+        self.automaticallyResumesAfterSuspension = automaticallyResumesAfterSuspension
+        self.dynamicImagePlaybackMode = dynamicImagePlaybackMode
+        self.dynamicTextOverflowMode = dynamicTextOverflowMode
+        self.marqueeSpeed = marqueeSpeed
+        self.marqueeStartDelay = marqueeStartDelay
     }
-    /// 按 `canvasSize` 计算的内容缩放方式，不用编码分辨率。
-    @objc public var contentMode: UIView.ContentMode = .scaleAspectFit
-    /// 音频策略，默认播放 MP4 内嵌音轨。
-    @objc public var audioMode: AudioMode = .embedded
-    /// 结束后是否清掉当前画面和可回收 GPU 资源。
-    @objc public var clearsAfterFinish: Bool = true
-    /// 后台 / 离屏时是挂起还是停止。
-    @objc public var backgroundPolicy: BackgroundPolicy = .suspend
-    /// 动态槽位图片播放策略。默认按内容播放：可动画则播动图。
-    ///
-    /// 动图能力依赖宿主链接的 SDWebImage（WebP 还需 SDWebImageWebPCoder）。
-    /// 组件本身不链接这些库；运行时探测不到时始终按静图处理。
-    @objc public var dynamicImagePlaybackMode: DynamicImagePlaybackMode = .animated
-    /// 动态文字溢出策略。默认尾部截断；仅当文字宽于槽位时才会跑马灯。
-    ///
-    /// 同时作用于 `.textReplacement`、`.text(attributes:)` 和 ObjC `replacementText`。
-    @objc public var dynamicTextOverflowMode: DynamicTextOverflowMode = .truncate
-    /// 跑马灯速度，单位 pt/s。仅 `dynamicTextOverflowMode == .marquee` 时生效。默认 80。
-    /// 非正值回退为 80。
-    @objc public var marqueeSpeed: CGFloat = 80 {
-        didSet {
-            if marqueeSpeed <= 0 { marqueeSpeed = 80 }
+
+    /// 校验配置值；非法通用参数抛 invalidArgument，透明几何错误抛 invalidAlphaLayout。
+    /// 编码帧的实际边界必须在 inspection 获得尺寸后再次检查。
+    public func validate() throws {
+        // 负数不是“额外循环”或单次播放，拒绝输入以免掩盖上层配置错误。
+        guard loopCount >= 0 else {
+            throw PlaybackError.invalidArgument(reason: "loopCount must be nonnegative.")
         }
-    }
-    /// 跑马灯起步停顿，单位秒。每个滚动周期开头都会停顿，从文字真正上屏开始算。
-    /// 仅跑马灯模式生效。默认 0.6。负值钳制为 0。
-    @objc public var marqueeStartDelay: TimeInterval = 0.6 {
-        didSet {
-            if marqueeStartDelay < 0 { marqueeStartDelay = 0 }
+        // NaN/无穷无法用于时钟，不能让比较表达式悄悄放行。
+        guard marqueeSpeed.isFinite, marqueeSpeed > 0,
+              marqueeStartDelay.isFinite, marqueeStartDelay >= 0 else {
+            throw PlaybackError.invalidArgument(reason: "Marquee speed and delay must be finite and in range.")
+        }
+        switch contentMode {
+        // 三种显式方式对应 renderer 的完整布局能力。
+        case .scaleAspectFit, .scaleAspectFill, .scaleToFill:
+            break
+        // 其他 UIView 对齐模式没有对应渲染语义，不能静默当作 aspectFit。
+        default:
+            throw PlaybackError.invalidArgument(reason: "contentMode must be aspectFit, aspectFill, or scaleToFill.")
+        }
+        // 仅显式透明模式携带外部区域，其形状错误不必等到打开文件才报告。
+        if case let .packedAlpha(layout) = assetMode {
+            try layout.validateGeometry()
         }
     }
 
-    /// 宿主进程是否链接了 SDWebImage。组件不会把它编进自身。
-    @objc public static var canPlayAnimatedDynamicImages: Bool {
+    /// 宿主是否链接可选 SDWebImage 动态图能力；不会在组件内建立图片下载服务。
+    @MainActor public static var canPlayAnimatedDynamicImages: Bool {
         SDWebImageRuntime.isAvailable
-    }
-
-    /// 每次调用都返回新实例，避免共享可变单例。
-    @objc(defaultOptions)
-    public static var defaultOptions: PlaybackOptions {
-        PlaybackOptions()
-    }
-
-    /// 使用全部默认值：自动识别资源、播一次、内嵌音频、AspectFit、结束后清画面、后台挂起、动态图按内容播放、文字尾部截断。
-    @objc public override init() {
-        super.init()
-    }
-
-    /// 深拷贝到新对象，供 session 持有，避免宿主事后改 options 污染正在播放的 session。
-    public func copy(with zone: NSZone? = nil) -> Any {
-        let copy = PlaybackOptions()
-        copy.assetMode = assetMode
-        copy.loopCount = loopCount
-        copy.contentMode = contentMode
-        copy.audioMode = audioMode
-        copy.clearsAfterFinish = clearsAfterFinish
-        copy.backgroundPolicy = backgroundPolicy
-        copy.dynamicImagePlaybackMode = dynamicImagePlaybackMode
-        copy.dynamicTextOverflowMode = dynamicTextOverflowMode
-        copy.marqueeSpeed = marqueeSpeed
-        copy.marqueeStartDelay = marqueeStartDelay
-        return copy
     }
 }

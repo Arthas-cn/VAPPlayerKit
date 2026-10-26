@@ -1,75 +1,33 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.4
 import PackageDescription
 
 let package = Package(
     name: "VAPPlayerKit",
     defaultLocalization: "en",
-    platforms: [
-        .iOS(.v15)
-    ],
-    products: [
-        .library(
-            name: "VAPPlayerKit",
-            targets: [
-                "VAPPlayerKit",
-                "VAPPlayerKitObjC"
-            ]
-        )
-    ],
+    platforms: [.iOS(.v26)],
+    products: [.library(name: "VAPPlayerKit", targets: ["VAPPlayerKit"])],
     targets: [
         .target(
             name: "VAPPlayerKit",
-            dependencies: [],
-            path: "Sources/VAPPlayerKit",
-            resources: [
-                .process("Resources")
-            ],
+            resources: [.process("Resources")],
+            // 解码、渲染和 UIKit 宿主都由系统框架提供，不引入下载或图片缓存依赖。
             linkerSettings: [
-                .linkedFramework("AVFoundation"),
-                .linkedFramework("CoreMedia"),
-                .linkedFramework("CoreVideo"),
-                .linkedFramework("Metal"),
-                .linkedFramework("MetalKit"),
-                .linkedFramework("QuartzCore"),
+                .linkedFramework("AVFoundation"), .linkedFramework("CoreMedia"),
+                .linkedFramework("CoreVideo"), .linkedFramework("Metal"),
+                .linkedFramework("MetalKit"), .linkedFramework("QuartzCore"),
                 .linkedFramework("UIKit")
             ]
         ),
-        .target(
-            name: "VAPPlayerKitObjC",
-            dependencies: [],
-            path: "Sources/VAPPlayerKitObjC",
-            publicHeadersPath: "include",
-            linkerSettings: [
-                .linkedFramework("UIKit")
-            ]
-        ),
-        .testTarget(
-            name: "VAPPlayerKitTests",
-            dependencies: ["VAPPlayerKit"],
-            path: "Tests/VAPPlayerKitTests"
-        ),
-        .testTarget(
-            name: "VAPPlayerKitTimingTests",
-            dependencies: ["VAPPlayerKit"],
-            path: "Tests/VAPPlayerKitTimingTests"
-        ),
-        .testTarget(
-            name: "VAPPlayerKitParserTests",
-            dependencies: ["VAPPlayerKit"],
-            path: "Tests/VAPPlayerKitParserTests"
-        ),
-        .testTarget(
-            name: "VAPPlayerKitRendererTests",
-            dependencies: ["VAPPlayerKit"],
-            path: "Tests/VAPPlayerKitRendererTests"
-        ),
-        .testTarget(
-            name: "VAPPlayerKitObjCTests",
-            dependencies: [
-                "VAPPlayerKit",
-                "VAPPlayerKitObjC"
-            ],
-            path: "Tests/VAPPlayerKitObjCTests"
-        )
-    ]
+        // 真机无法读取构建主机的 #filePath，将正式 fixture 复制进各测试 bundle。
+        .testTarget(name: "VAPPlayerKitTests", dependencies: ["VAPPlayerKit"],
+                    path: "Tests", exclude: ["HostedTestBundle.swift", "Fixtures/README.md", "VAPPlayerKitParserTests", "VAPPlayerKitTimingTests", "VAPPlayerKitRendererTests"],
+                    sources: ["VAPPlayerKitTests"], resources: [.copy("Fixtures/VAP")]),
+        .testTarget(name: "VAPPlayerKitTimingTests", dependencies: ["VAPPlayerKit"]),
+        // 真机无法读取构建主机的 #filePath，将正式 fixture 复制进各测试 bundle。
+        .testTarget(name: "VAPPlayerKitParserTests", dependencies: ["VAPPlayerKit"],
+                    path: "Tests", exclude: ["HostedTestBundle.swift", "Fixtures/README.md", "VAPPlayerKitTests", "VAPPlayerKitTimingTests", "VAPPlayerKitRendererTests"],
+                    sources: ["VAPPlayerKitParserTests"], resources: [.copy("Fixtures/VAP")]),
+        .testTarget(name: "VAPPlayerKitRendererTests", dependencies: ["VAPPlayerKit"])
+    ],
+    swiftLanguageModes: [.v6]
 )

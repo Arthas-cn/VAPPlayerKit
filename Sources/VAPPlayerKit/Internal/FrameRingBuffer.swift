@@ -4,16 +4,20 @@ import CoreMedia
 /// 固定容量的解码帧缓冲。满时拒绝入队，形成对 FrameSource 的背压。
 ///
 /// 对照 `vap-master` 的 `QGAnimatedImageBufferManager`，但主路径不用「可变数组再 sort」。
-final class FrameRingBuffer {
+final class FrameRingBuffer: @unchecked Sendable {
     /// 槽位数。默认 6，不得为 0。
     private let capacity: Int
     /// 环形数组。出队后立刻置 nil，避免 pixel buffer 滞留。
     private var storage: [DecodedFrame?]
+    /// 最旧帧的环形位置，所有读写都在 condition 锁内。
     private var head = 0
+    /// 下次写入的环形位置，不与跨线程生产者无锁共享。
     private var tail = 0
+    /// 当前有效帧数，始终落在 0...capacity。
     private var storedCount = 0
     /// 保护存储，并在满/空时让 decoder 等待。
     private let condition = NSCondition()
+    /// 已关闭入队时为 true，取消会唤醒背压中的 producer。
     private var cancelled = false
 
     /// 默认 6 帧。高端设备可到 8，但必须受内存上限约束。
@@ -135,7 +139,9 @@ final class FrameRingBuffer {
     }
 }
 
+/// 为解码缓冲提供同步临界区，锁内不执行 await。
 extension NSCondition {
+    /// 在持锁期间执行短同步操作，退出或抛错时始终解锁。
     func withLock<T>(_ body: () throws -> T) rethrows -> T {
         lock()
         defer { unlock() }

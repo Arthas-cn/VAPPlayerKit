@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.0.0 — Unreleased
+
+当前记录对应 v2 工作树，尚未表示已发布；构建、单元/集成测试及真机结果待维护者验证并补记。
+
+- 基线更新为 Swift tools 6.4、Swift 6 language mode 和 iOS 26，仅保留 `VAPPlayerKit` Swift library product。
+- 移除 Objective-C facade；`PlaybackOptions`、`AssetMetadata` 和公开状态/错误使用 Swift 值类型，不提供旧对象复制配置或兼容层。
+- 新增显式 `.packedAlpha(PackedAlphaLayout)`：完整整数颜色/Alpha 矩形、左右/上下轴、任意侧颜色、非等分与奇数区域，不走旧布局猜测。
+- 默认 assetMode 改为 `.vap`；普通视频与自动探测均由调用方显式选择。
+- 新增 `PlayerView.inspect(url:options:)`、可复用不可变 metadata，以及 `clearAndWait()` 的受管异步排空入口。
+- metadata 缓存使用 actor、文件签名与完整布局身份；失效后旧检查不得重新写回缓存。
+- 新增 SwiftUI `VAPPlayerView`、稳定请求 ID、播放意图、controlRevision 和低频值事件；普通重绘不重播，系统暂停等待显式恢复。
+- 动态提供者改为 MainActor async throws，串行准备并保留非合作取消任务至实际退出。
+- 内嵌音频增加 readyToPlay 屏障、准备与运行期错误、实例静音及定位完成结果处理，取消后等待真实操作收尾。
+- 新增布局、配置、缓存、音频与 SwiftUI 生命周期回归测试；验证结果待补，不以新增测试文件代替通过记录。
+
+下列 1.x 条目仅记录当时发布事实，其最低系统、接口和验证结果不适用于 v2。
+
 ## 1.0.6 — 2026-10-12
 
 - 识别无 `vapc`、左右拼接且垂直错位的旧 packed VAP（`7878.mp4`）：Alpha 在右，画布取两半重叠区域。

@@ -1,380 +1,331 @@
-import UIKit
+import AVFoundation
 import Metal
 import QuartzCore
+import UIKit
 
-/// 宿主唯一需要持有的播放视图。负责 UIKit 生命周期和公开控制；每一次新播放都拥有独立 session。
-///
-/// 视图本身不解析 MP4、不持有解码器。真正的准备 / 出帧 / 终态都在 `PlaybackSession` 内完成，
-/// 本类只做入口转发、前后台策略和 Swift / ObjC 回调桥接。
-@objc(VPKPlayerView)
+/// UIKit 播放宿主；拥有一个当前 session，并保留已终态但尚未排空的资源。
+/// 只接受本地文件，下载、缓存和加载并发由上层统一播放器管理。
 @MainActor
 public final class PlayerView: UIView {
-    /// Swift 侧播放回调。所有事件在主线程派发，每个 session 终态最多一次。
-    public weak var delegate: PlayerDelegate?
-    /// Swift 动态内容提供者。prepare 时注入到新 session，播放中途更换不会影响当前 session。
-    public weak var dynamicContentProvider: DynamicContentProvider?
-    /// 可选埋点接收器。组件不依赖具体 APM。
-    public weak var metricsSink: MetricsSink?
-
-    /// Objective-C 侧播放回调。与 `delegate` 并行派发，互不影响。
-    @objc(delegate)
-    public weak var objcDelegate: ObjCPlayerDelegate?
-    /// Objective-C 动态内容提供者。与 Swift provider 二选一即可。
-    @objc(dynamicContentProvider)
-    public weak var objcDynamicProvider: ObjCDynamicContentProvider?
-
-    /// 当前正在准备或播放的 session。终态后会被置空。
-    private var session: PlaybackSession?
-    /// 最近一次成功 prepare 的本地 URL，用于判断后续 `play` 能否复用 ready session。
-    private var preparedURL: URL?
-    /// 最近一次成功 prepare 得到的 metadata 实例，用于判断显式 metadata 入口是否仍匹配。
-    private var preparedMetadata: AssetMetadata?
-    /// 最近一次成功 prepare 的 options 快照。任一字段变化都视为需要新建 session。
-    private var preparedOptions: OptionsSignature?
-    /// 递增代数。新的 prepare / play / stop 会作废进行中的异步任务。
-    private var operationGeneration: UInt64 = 0
-    /// 当前 `play` 的异步准备任务。新操作会先取消它。
-    private var playTask: Task<Void, Never>?
-    /// 前后台通知观察者，deinit 时必须移除。
-    private var notificationTokens: [NSObjectProtocol] = []
-    /// 独立于 UIView backing layer 的 Metal 呈现层，避免内部隐藏 drawable 覆盖宿主可见性。
-    private let presentationLayer = CAMetalLayer()
-
-    /// 实际提交 GPU 画面的 Metal layer。宿主一般不需要直接操作。
+    /// 当前宿主的事件接收者；session 的终态互斥且最多一次。
+    public weak var delegate: (any PlayerDelegate)?
+    /// 下一次准备时快照的动态内容提供者；session 会强持有至清理完成。
+    public weak var dynamicContentProvider: (any DynamicContentProvider)?
+    /// 可选的线程安全指标接收者，不承担播放控制。
+    public weak var metricsSink: (any MetricsSink)?
+    /// 当前静音期望值；准备之前设置也会应用到之后创建的内嵌音轨。
+    public var isMuted = false {
+        didSet { session?.setMuted(isMuted) }
+    }
+    /// 承载可见画面的独立透明层，不改变宿主 UIView 的可见性。
     public var metalLayer: CAMetalLayer { presentationLayer }
 
+    /// 当前正在准备、就绪或播放的会话；终态后立即退出当前角色。
+    private var session: PlaybackSession?
+    /// 成功准备的输入身份，用于 prepare 后首次 play 复用。
+    private var preparedURL: URL?
+    /// 成功准备的不可变元数据，用于校验显式 metadata 是否同一份检查结果。
+    private var preparedMetadata: AssetMetadata?
+    /// 成功准备的完整值配置，包含显式透明矩形与恢复策略。
+    private var preparedOptions: PlaybackOptions?
+    /// 每次替换、停止或清空递增，迟到的异步操作不能启动新画面。
+    private var operationGeneration: UInt64 = 0
+    /// 由同步 play 入口拥有的准备任务，停止时请求取消并等待它退出。
+    private var playTask: Task<Void, Never>?
+    /// 已终态的会话排空任务；不能因当前 session=nil 就跳过它们。
+    private var retirements: [SessionToken: Task<Void, Never>] = [:]
+    /// 用户暂停覆盖 SDK 自带的场景恢复；系统暂停也等待显式恢复。
+    private var requiresExplicitResume = false
+    /// 音频中断尚未结束时禁止任何入口恢复音画；结束本身不代表恢复授权。
+    private var isAudioInterrupted = false
+    /// 已接纳首次 play 但被暂停门延迟的会话；prepare 本身不会设置它。
+    private var pendingInitialStart = false
+    /// 前后台与音频中断的通知订阅，销毁时解除。
+    private var notificationTokens: [NSObjectProtocol] = []
+    /// 独立于 UIView backing layer 的 Metal 呈现层。
+    private let presentationLayer = CAMetalLayer()
+
+    /// 创建透明播放宿主，不执行文件读取或播放器准备。
     public override init(frame: CGRect) {
         super.init(frame: frame)
         configureLayer()
         observeApplicationLifecycle()
     }
 
-    @objc public required init?(coder: NSCoder) {
+    /// 从 UIKit 归档创建宿主；与代码构造使用相同生命周期。
+    public required init?(coder: NSCoder) {
         super.init(coder: coder)
         configureLayer()
         observeApplicationLifecycle()
     }
 
-    deinit {
+    /// 销毁时解除通知并移交尚未排空的 session；正常资源归还应显式等待 clearAndWait。
+    isolated deinit {
         playTask?.cancel()
-        let activeSession = session
-        Task { @MainActor in
-            activeSession?.stop(reason: .cancelled)
-        }
+        // 显式 clearAndWait 是正常收尾路径；未显式清理的 UIKit 宿主仍交给受管 owner 排空。
+        if let session { PlaybackRetirementOwner.retire(session) }
         for token in notificationTokens { NotificationCenter.default.removeObserver(token) }
     }
 
-    /// 配置透明 Metal 呈现层。必须独立于 UIView backing layer，才能在结束后隐藏画面而不改宿主 alpha。
+    /// 配置透明层，显示 scale 取当前 trait，不使用全局屏幕猜测窗口。
     private func configureLayer() {
         isOpaque = false
         backgroundColor = .clear
-        layer.addSublayer(metalLayer)
-        metalLayer.isOpaque = false
-        metalLayer.pixelFormat = .bgra8Unorm
-        metalLayer.contentsScale = UIScreen.main.scale
-        metalLayer.framebufferOnly = true
+        layer.addSublayer(presentationLayer)
+        presentationLayer.isOpaque = false
+        presentationLayer.pixelFormat = .bgra8Unorm
+        presentationLayer.contentsScale = traitCollection.displayScale
+        presentationLayer.framebufferOnly = true
     }
 
-    /// 同步 Metal 层几何与 drawable 尺寸。零尺寸时挂起，避免空 drawable 被当成播放错误；
-    /// 从零尺寸恢复且仍在前台 window 中时自动 resume。
+    /// 更新实际 drawable 尺寸；零尺寸只挂起，不作为解码错误或自然结束。
     public override func layoutSubviews() {
         super.layoutSubviews()
-        metalLayer.frame = bounds
-        let scale = window?.screen.scale ?? UIScreen.main.scale
-        metalLayer.contentsScale = scale
+        presentationLayer.frame = bounds
+        let scale = traitCollection.displayScale
+        presentationLayer.contentsScale = scale
         let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+        // 无效展示尺寸必须先冻结音画；恢复只在宿主允许自动恢复时生效。
         if size.width > 0, size.height > 0 {
-            metalLayer.drawableSize = size
-            if
-                let session,
-                session.state == .suspended,
-                window != nil,
-                UIApplication.shared.applicationState == .active
-            {
-                session.resume()
-            }
+            presentationLayer.drawableSize = size
+            resumeAutomaticallyIfAllowed()
         } else {
             session?.suspend()
         }
-        session?.updateRenderSnapshot(RenderSnapshot(
-            drawableSize: size,
-            contentMode: session?.options.contentMode ?? .scaleAspectFit
-        ))
+        updateSnapshot()
     }
 
-    /// 离开 window 时按 `backgroundPolicy` 挂起或停止；重新入窗且仍 suspended 时恢复。
+    /// 离窗时遵守安全挂起/停止策略，重新入窗不覆盖统一层的恢复控制。
     public override func didMoveToWindow() {
         super.didMoveToWindow()
-        guard let session else { return }
-        if window == nil {
-            switch session.options.backgroundPolicy {
-            case .suspend: session.suspend()
-            case .stop:
-                if session.options.clearsAfterFinish { metalLayer.isHidden = true }
-                session.stop(reason: .stopped)
-            }
-        } else if
-            session.state == .suspended,
-            !bounds.isEmpty,
-            UIApplication.shared.applicationState == .active
-        {
-            session.resume()
-        }
+        // 离窗不能继续提交 GPU 工作；入窗是否恢复由配置与显式暂停门共同决定。
+        if window == nil { handleBackground() }
+        else { resumeAutomaticallyIfAllowed() }
     }
 
-    /// 解析 metadata、准备动态内容和 GPU pipeline，但不自动播放。
-    ///
-    /// 会查询全局 `AssetMetadataCache`：相同本地 URL 命中时可跳过 MP4/vapc 再解析。
-    public func prepare(url: URL, options: PlaybackOptions = .defaultOptions) async throws -> AssetMetadata {
-        try await prepareInternal(url: url, metadata: nil, options: options)
+    /// 只解析本地资源和槽位，不创建解码器、renderer、动态 provider 或音频。
+    /// 结果按文件签名与完整布局缓存；取消会等本次 inspection 真实收口。
+    public static func inspect(url: URL, options: PlaybackOptions = .init()) async throws -> AssetMetadata {
+        try options.validate()
+        let resolution = try await AssetMetadataCache.shared.resolve(
+            url: url, inspector: AssetInspector(), assetMode: options.assetMode
+        )
+        try Task.checkCancellation()
+        return resolution.inspection.metadata
     }
 
-    /// 使用本组件此前为同一 URL 解析出的 metadata 准备，跳过重复 MP4/vapc inspection。
-    ///
-    /// 仅 `isReusableForPlayback == true` 的对象可用；成功后会写入全局 `AssetMetadataCache`，
-    /// 供后续未显式传 metadata 的 `prepare` / `play` 复用。
-    public func prepare(
-        url: URL,
-        metadata: AssetMetadata,
-        options: PlaybackOptions = .defaultOptions
-    ) async throws -> AssetMetadata {
-        try await prepareInternal(url: url, metadata: metadata, options: options)
+    /// 准备全部播放子系统而不启动时间轴；取消/非法资源会抛错，事件仍只结算一次。
+    @discardableResult
+    public func prepare(url: URL, options: PlaybackOptions = .init()) async throws -> AssetMetadata {
+        try await prepare(url: url, suppliedMetadata: nil, options: options)
     }
 
-    /// 取消当前操作并创建新 session 执行 prepare。代数或 token 变化时丢弃过期结果。
-    private func prepareInternal(
-        url: URL,
-        metadata: AssetMetadata?,
-        options: PlaybackOptions
-    ) async throws -> AssetMetadata {
+    /// 使用同一文件、相同布局的检查结果准备，文件签名不匹配时拒绝复用。
+    @discardableResult
+    public func prepare(url: URL, metadata: AssetMetadata, options: PlaybackOptions = .init()) async throws -> AssetMetadata {
+        try await prepare(url: url, suppliedMetadata: metadata, options: options)
+    }
+
+    /// 为调用方准备操作创建代次，确保旧会话排空后才分配下一份管线。
+    private func prepare(url: URL, suppliedMetadata: AssetMetadata?, options: PlaybackOptions) async throws -> AssetMetadata {
         let generation = beginNewOperation()
-        replaceCurrentSession(reason: .cancelled)
-        let newSession = makeSession(url: url, options: options)
-        session = newSession
+        requiresExplicitResume = false
+        return try await prepareForOperation(url: url, metadata: suppliedMetadata, options: options, generation: generation)
+    }
+
+    /// 在当前代次中准备；同步 play 与 async prepare 共用这条路径，避免互相取消自身。
+    private func prepareForOperation(url: URL, metadata: AssetMetadata?, options: PlaybackOptions, generation: UInt64) async throws -> AssetMetadata {
+        // 已取消的启动任务可能晚于新请求才获调度，不能先停掉新请求再检查代次。
+        guard generation == operationGeneration, !Task.isCancelled else { throw CancellationError() }
+        retireCurrent(reason: .cancelled)
+        await waitForRetirements()
+        // 等待旧 GPU/提供者期间可能已经换资源，失效请求不再分配下一份资源。
+        guard generation == operationGeneration, !Task.isCancelled else { throw CancellationError() }
+        do { try options.validate() }
+        catch {
+            delegate?.player(self, didFail: error)
+            throw error
+        }
+        let target = makeSession(url: url, options: options)
+        session = target
         do {
-            let resolvedMetadata = try await newSession.prepare(using: metadata)
-            guard operationGeneration == generation, session?.token == newSession.token else {
-                throw PlaybackError.cancelled
+            let resolved = try await target.prepare(using: metadata)
+            // 准备完成只能提交给创建它的操作；新静音值另外从属性同步。
+            guard generation == operationGeneration, session?.token == target.token, !Task.isCancelled else {
+                throw CancellationError()
             }
             preparedURL = url
-            preparedMetadata = resolvedMetadata
-            preparedOptions = OptionsSignature(options)
-            updateSnapshot(for: newSession)
-            return resolvedMetadata
+            preparedMetadata = resolved
+            preparedOptions = options
+            target.setMuted(isMuted)
+            updateSnapshot()
+            return resolved
         } catch {
-            if session?.token == newSession.token, newSession.state == .failed { session = nil }
+            // 失败的 session 自己发一次终态；无论是否仍是当前会话都保留到实际排空。
+            registerRetirement(target)
+            if session?.token == target.token { session = nil }
             throw error
         }
     }
 
-    /// Objective-C 回调式 prepare。completion 在主线程调用且只回调一次。
-    @objc(prepareWithURL:options:completion:)
-    public func prepare(
-        url: URL,
-        options: PlaybackOptions,
-        completion: @escaping (AssetMetadata?, NSError?) -> Void
-    ) {
-        Task { @MainActor in
-            do {
-                completion(try await prepare(url: url, options: options), nil)
-            } catch {
-                completion(nil, error as NSError)
-            }
-        }
+    /// 播放本地文件；若相同输入已 ready 则直接启动，否则受管地异步准备。
+    public func play(url: URL, options: PlaybackOptions = .init()) {
+        play(url: url, suppliedMetadata: nil, options: options)
     }
 
-    /// Objective-C 回调式 metadata 复用 prepare。
-    @objc(prepareWithURL:metadata:options:completion:)
-    public func prepare(
-        url: URL,
-        metadata: AssetMetadata,
-        options: PlaybackOptions,
-        completion: @escaping (AssetMetadata?, NSError?) -> Void
-    ) {
-        Task { @MainActor in
-            do {
-                completion(try await prepare(url: url, metadata: metadata, options: options), nil)
-            } catch {
-                completion(nil, error as NSError)
-            }
-        }
+    /// 播放经过本库检查的文件，复用前仍校验完整文件和布局身份。
+    public func play(url: URL, metadata: AssetMetadata, options: PlaybackOptions = .init()) {
+        play(url: url, suppliedMetadata: metadata, options: options)
     }
 
-    /// 准备并播放。已由相同 URL 与 options 准备好的 ready session 会被复用。
-    /// 未显式传 metadata 时走全局 `AssetMetadataCache`。
-    @objc(playWithURL:options:)
-    public func play(url: URL, options: PlaybackOptions = .defaultOptions) {
-        playInternal(url: url, metadata: nil, options: options)
-    }
-
-    /// 使用本组件此前返回的 metadata 播放，避免重复 MP4/vapc inspection。
-    /// 仅可复用对象有效；成功后会写入全局缓存，供后续未传 metadata 的播放复用。
-    @objc(playWithURL:metadata:options:)
-    public func play(
-        url: URL,
-        metadata: AssetMetadata,
-        options: PlaybackOptions = .defaultOptions
-    ) {
-        playInternal(url: url, metadata: metadata, options: options)
-    }
-
-    /// 启动播放 Task。已 ready 且 URL/options 未变时可跳过 prepare；离屏或零尺寸时按策略挂起/停止。
-    private func playInternal(url: URL, metadata suppliedMetadata: AssetMetadata?, options: PlaybackOptions) {
+    /// 拥有异步启动任务；所有暂停点之后检查代次，取消不能产生迟到画面。
+    private func play(url: URL, suppliedMetadata: AssetMetadata?, options: PlaybackOptions) {
         let generation = beginNewOperation()
+        requiresExplicitResume = false
         playTask = Task { @MainActor [weak self] in
-            let signature = OptionsSignature(options)
-            guard let context = self?.makePlayPreparation(
-                url: url,
-                metadata: suppliedMetadata,
-                options: options,
-                signature: signature
-            ) else { return }
-            var resolvedMetadata: AssetMetadata?
-            if context.requiresPrepare {
+            // 首次调度也可能已过期；任何 session 状态读取和替换都在代次门之后。
+            guard let self, self.operationGeneration == generation, !Task.isCancelled else { return }
+            let target: PlaybackSession
+            // prepare 后第一次 play 不重复创建 session；不同配置必须走完整替换路径。
+            if let current = self.session, current.state == .ready,
+               self.preparedURL == url, self.preparedOptions == options,
+               suppliedMetadata == nil || self.preparedMetadata == suppliedMetadata {
+                target = current
+            } else {
                 do {
-                    resolvedMetadata = try await context.target.prepare(using: suppliedMetadata)
-                } catch {
-                    return
-                }
+                    _ = try await self.prepareForOperation(url: url, metadata: suppliedMetadata, options: options, generation: generation)
+                    guard let current = self.session else { return }
+                    target = current
+                } catch { return }
             }
-            guard let self else {
-                context.target.stop(reason: .cancelled)
-                return
-            }
-            if let resolvedMetadata {
-                self.preparedURL = url
-                self.preparedMetadata = resolvedMetadata
-                self.preparedOptions = signature
-            }
-            guard
-                !Task.isCancelled,
-                self.operationGeneration == generation,
-                self.session?.token == context.target.token
-            else {
-                context.target.stop(reason: .cancelled)
-                return
-            }
-            self.updateSnapshot(for: context.target)
-            context.target.play()
-            if self.bounds.isEmpty {
-                context.target.suspend()
-            } else if self.window == nil || UIApplication.shared.applicationState != .active {
-                switch context.target.options.backgroundPolicy {
-                case .suspend: context.target.suspend()
-                case .stop:
-                    if context.target.options.clearsAfterFinish { self.metalLayer.isHidden = true }
-                    context.target.stop(reason: .stopped)
-                }
+            // 仅最新操作可以启动；展示条件不满足时进入安全挂起，绝不继续声音。
+            guard self.operationGeneration == generation, !Task.isCancelled, self.session?.token == target.token else { return }
+            self.updateSnapshot()
+            self.pendingInitialStart = true
+            // 首次 play 的准备期间收到用户暂停时，不能短暂启动声音再补暂停。
+            guard !self.requiresExplicitResume, !self.isAudioInterrupted else { return }
+            self.pendingInitialStart = false
+            target.play()
+            if self.bounds.isEmpty || self.window == nil || UIApplication.shared.applicationState != .active {
+                self.handleBackground()
             }
         }
     }
 
-    /// 判断当前 ready session 能否直接 play；不能则取消旧 session 并创建新的。
-    private func makePlayPreparation(
-        url: URL,
-        metadata suppliedMetadata: AssetMetadata?,
-        options: PlaybackOptions,
-        signature: OptionsSignature
-    ) -> PlayPreparation {
-        if
-            let current = session,
-            current.state == .ready,
-            preparedURL == url,
-            preparedOptions == signature,
-            suppliedMetadata == nil || preparedMetadata === suppliedMetadata
-        {
-            return PlayPreparation(target: current, requiresPrepare: false)
-        }
-        replaceCurrentSession(reason: .cancelled)
-        let target = makeSession(url: url, options: options)
-        session = target
-        return PlayPreparation(target: target, requiresPrepare: true)
+    /// 暂停并要求显式恢复；已经系统挂起的 session 也会记住用户意图。
+    public func pause() {
+        requiresExplicitResume = true
+        session?.pause()
     }
 
-    /// 暂停当前 session，冻结媒体时钟。无 session 时为空操作。
-    @objc public func pause() { session?.pause() }
+    /// 显式恢复，只有当前窗口、有效尺寸和前台状态都允许时才继续音画。
+    public func resume() {
+        // 业务可以提前表达恢复，但不能绕过系统安全门在后台播放。
+        guard !isAudioInterrupted, window != nil, !bounds.isEmpty, UIApplication.shared.applicationState == .active else { return }
+        requiresExplicitResume = false
+        // 只有已接受 play 的 ready 会话可以首次启动；单纯 prepare 后 resume 仍为空操作。
+        if pendingInitialStart, let session, session.state == .ready {
+            pendingInitialStart = false
+            session.play()
+        } else {
+            session?.resume()
+        }
+    }
 
-    /// 从 pause / suspend 恢复。无 session 时为空操作。
-    @objc public func resume() { session?.resume() }
-
-    /// 停止当前 session。若 `clearsAfterFinish` 为 true，会隐藏 Metal 层。
-    @objc public func stop() {
+    /// 立即停止并使旧操作失效；物理资源仍受管收尾，等待完成请用 clearAndWait。
+    public func stop() {
         _ = beginNewOperation()
-        guard let session else { return }
-        if session.options.clearsAfterFinish { metalLayer.isHidden = true }
-        session.stop(reason: .stopped)
-        if self.session?.token == session.token { self.session = nil }
-        preparedURL = nil
-        preparedMetadata = nil
-        preparedOptions = nil
+        retireCurrent(reason: .stopped)
     }
 
-    /// 停止并强制隐藏当前画面，不论 `clearsAfterFinish` 如何设置。
-    @objc public func clear() {
-        _ = beginNewOperation()
-        metalLayer.isHidden = true
-        if let session {
-            session.stop(reason: .stopped)
-            if self.session?.token == session.token { self.session = nil }
-        }
-        preparedURL = nil
-        preparedMetadata = nil
-        preparedOptions = nil
+    /// 立即停止并隐藏画面；不会删除宿主的文件或共享 metadata 缓存。
+    public func clear() {
+        presentationLayer.isHidden = true
+        stop()
     }
 
-    /// 深拷贝 options 后创建 session，并把 session 事件转发到 Swift / ObjC delegate。
+    /// 停止并等待当前及已终态 session 的准备、provider、解码、音频和 GPU 排空。
+    /// 幂等；调用方取消等待也不会提前归还尚在使用的底层资源。
+    public func clearAndWait() async {
+        let launching = playTask
+        clear()
+        if let launching { await launching.value }
+        await waitForRetirements()
+    }
+
+    /// 创建一个配置值独立、事件按 token 过滤的 session。
     private func makeSession(url: URL, options: PlaybackOptions) -> PlaybackSession {
-        let copiedOptions = options.copy() as! PlaybackOptions
-        let session = PlaybackSession(
-            url: url,
-            options: copiedOptions,
-            metalLayer: metalLayer,
-            dynamicProvider: dynamicContentProvider,
-            objcDynamicProvider: objcDynamicProvider
-        )
-        session.metricsSink = metricsSink
-        session.onStart = { [weak self, weak session] in
-            guard let self, let session, self.session?.token == session.token else { return }
-            self.notifyStart()
+        let target = PlaybackSession(url: url, options: options, metalLayer: presentationLayer,
+                                     dynamicProvider: dynamicContentProvider)
+        target.setMuted(isMuted)
+        target.metricsSink = metricsSink
+        target.onStart = { [weak self, weak target] in
+            guard let self, let target, self.session?.token == target.token else { return }
+            self.delegate?.playerDidStart(self)
         }
-        session.onMetadata = { [weak self, weak session] metadata in
-            guard let self, let session, self.session?.token == session.token else { return }
-            self.notifyMetadata(metadata)
+        target.onMetadata = { [weak self, weak target] metadata in
+            guard let self, let target, self.session?.token == target.token else { return }
+            self.delegate?.player(self, didUpdate: metadata)
         }
-        session.onFirstFrame = { [weak self, weak session] in
-            guard let self, let session, self.session?.token == session.token else { return }
-            self.metalLayer.isHidden = false
+        target.onFirstFrame = { [weak self, weak target] in
+            guard let self, let target, self.session?.token == target.token else { return }
+            self.presentationLayer.isHidden = false
         }
-        session.onFinish = { [weak self, weak session] reason in
-            guard let self, let session, self.session?.token == session.token else { return }
-            if session.options.clearsAfterFinish { self.metalLayer.isHidden = true }
+        target.onFinish = { [weak self, weak target] reason in
+            guard let self, let target, self.session?.token == target.token else { return }
+            // 终态先退出当前角色；回调重入 play 不会被旧 session 的尾部覆盖。
             self.session = nil
-            self.preparedURL = nil
-            self.preparedMetadata = nil
-            self.preparedOptions = nil
-            self.notifyFinish(reason)
+            self.resetPreparedIdentity()
+            if target.options.clearsAfterFinish { self.presentationLayer.isHidden = true }
+            self.registerRetirement(target)
+            self.delegate?.playerDidFinish(self, reason: reason)
         }
-        session.onFailure = { [weak self, weak session] error in
-            guard let self, let session, self.session?.token == session.token else { return }
+        target.onFailure = { [weak self, weak target] error in
+            guard let self, let target, self.session?.token == target.token else { return }
             self.session = nil
-            self.preparedURL = nil
-            self.preparedMetadata = nil
-            self.preparedOptions = nil
-            self.notifyFailure(error)
+            self.presentationLayer.isHidden = true
+            self.resetPreparedIdentity()
+            self.registerRetirement(target)
+            self.delegate?.player(self, didFail: error)
         }
-        return session
+        return target
     }
 
-    /// 把当前视图尺寸和 contentMode 同步给 renderer，供 viewport 计算。
-    private func updateSnapshot(for session: PlaybackSession) {
-        let scale = window?.screen.scale ?? UIScreen.main.scale
-        session.updateRenderSnapshot(RenderSnapshot(
-            drawableSize: CGSize(width: bounds.width * scale, height: bounds.height * scale),
-            contentMode: session.options.contentMode
-        ))
+    /// 将当前会话转为退役状态，保留清理所有权直到它真正完成。
+    private func retireCurrent(reason: FinishReason) {
+        guard let target = session else { return }
+        target.stop(reason: reason)
+        // idle 或已经终态的会话不一定再触发 delegate，仍需登记清理。
+        if session?.token == target.token { session = nil }
+        resetPreparedIdentity()
+        if target.options.clearsAfterFinish { presentationLayer.isHidden = true }
+        registerRetirement(target)
     }
 
-    /// 递增操作代数并取消进行中的 play Task，使过期异步结果失效。
+    /// 每个 session 只登记一个排空任务，保留自然结束但还在 GPU 收尾的会话。
+    private func registerRetirement(_ target: PlaybackSession) {
+        guard retirements[target.token] == nil else { return }
+        retirements[target.token] = Task { @MainActor [weak self] in
+            await target.clearAndWait()
+            self?.retirements[target.token] = nil
+        }
+    }
+
+    /// 等待本调用开始时已登记的退役会话，不取消之后由新操作建立的会话。
+    private func waitForRetirements() async {
+        let pending = Array(retirements.values)
+        for task in pending { await task.value }
+    }
+
+    /// 清理仅用于 ready 复用的输入快照，不干扰已取得元数据的业务代码。
+    private func resetPreparedIdentity() {
+        pendingInitialStart = false
+        preparedURL = nil
+        preparedMetadata = nil
+        preparedOptions = nil
+    }
+
+    /// 作废旧操作并请求旧 play 任务取消，已分配资源由 session 排空路径保留。
     @discardableResult
     private func beginNewOperation() -> UInt64 {
         operationGeneration &+= 1
@@ -383,119 +334,79 @@ public final class PlayerView: UIView {
         return operationGeneration
     }
 
-    /// 停止并丢弃当前 session，同时清掉 prepared 快照。
-    private func replaceCurrentSession(reason: FinishReason) {
+    /// 将 UIKit 的实际像素尺寸传给串行 renderer，不在后台访问 UIView。
+    private func updateSnapshot() {
         guard let session else { return }
-        if session.options.clearsAfterFinish { metalLayer.isHidden = true }
-        session.stop(reason: reason)
-        if self.session?.token == session.token { self.session = nil }
-        preparedURL = nil
-        preparedMetadata = nil
-        preparedOptions = nil
+        let scale = traitCollection.displayScale
+        session.updateRenderSnapshot(RenderSnapshot(
+            drawableSize: CGSize(width: bounds.width * scale, height: bounds.height * scale),
+            contentMode: session.options.contentMode
+        ))
     }
 
-    /// 监听进后台 / 回前台，把生命周期映射到 session 的 suspend / resume / stop。
-    private func observeApplicationLifecycle() {
-        let center = NotificationCenter.default
-        // willResignActive arrives before iOS may suspend AVFoundation / Metal work.
-        // Suspending early prevents an in-flight AVAssetReader from being reported as
-        // a real decoder failure while the process is moving to the background.
-        notificationTokens.append(center.addObserver(
-            forName: UIApplication.willResignActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.handleBackground() }
-        })
-        notificationTokens.append(center.addObserver(
-            forName: UIApplication.didEnterBackgroundNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.handleBackground() }
-        })
-        notificationTokens.append(center.addObserver(
-            forName: UIApplication.didBecomeActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.handleForeground() }
-        })
-    }
-
-    /// 进入后台：按 `backgroundPolicy` 挂起或停止，不把后台当成播放完成。
-    private func handleBackground() {
-        guard let session else { return }
-        switch session.options.backgroundPolicy {
-        case .suspend: session.suspend()
-        case .stop:
-            if session.options.clearsAfterFinish { metalLayer.isHidden = true }
-            session.stop(reason: .stopped)
-        }
-    }
-
-    /// 回到前台且仍在 window、尺寸有效、状态为 suspended 时恢复播放。
-    private func handleForeground() {
-        guard window != nil, !bounds.isEmpty, let session, session.state == .suspended else { return }
+    /// 仅在配置允许、未被用户/系统显式暂停且安全门打开时由 SDK 自动恢复。
+    private func resumeAutomaticallyIfAllowed() {
+        guard let session, session.options.automaticallyResumesAfterSuspension,
+              !requiresExplicitResume, !isAudioInterrupted, session.state == .suspended,
+              window != nil, !bounds.isEmpty, UIApplication.shared.applicationState == .active else { return }
         session.resume()
     }
 
-    /// 同时通知 Swift 与 ObjC delegate。token 校验已在调用方完成。
-    private func notifyStart() {
-        delegate?.playerDidStart(self)
-        objcDelegate?.playerViewDidStart?(self)
+    /// 观察 App 生命周期与音频中断；不修改 App 全局 AVAudioSession 策略。
+    private func observeApplicationLifecycle() {
+        let center = NotificationCenter.default
+        for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
+            notificationTokens.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                // 订阅明确在主队列交付，必须同步关门，不能让下一条播放命令抢在失活之前。
+                MainActor.assumeIsolated { self?.handleBackground() }
+            })
+        }
+        notificationTokens.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.resumeAutomaticallyIfAllowed() }
+        })
+        notificationTokens.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] notification in
+            let type = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            // 主队列交付保证 actor 前置条件；同步 latch 避免通知返回后 resume 抢先执行。
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // 中断开始后显式 resume 和新 play 也不能绕过系统暂停门。
+                if type == AVAudioSession.InterruptionType.began.rawValue {
+                    self.isAudioInterrupted = true
+                    self.pause()
+                // 中断结束仅移除阻塞，仍由宿主显式授权恢复。
+                } else if type == AVAudioSession.InterruptionType.ended.rawValue {
+                    self.isAudioInterrupted = false
+                }
+            }
+        })
     }
 
-    /// 把解析完成的 metadata 转发给两侧 delegate，供宿主按 `canvasSize` 布局。
-    private func notifyMetadata(_ metadata: AssetMetadata) {
-        delegate?.player(self, didUpdate: metadata)
-        objcDelegate?.playerView?(self, didResolveMetadata: metadata)
-    }
-
-    /// 终态完成回调。每个 session 最多一次，不会再跟 fail。
-    private func notifyFinish(_ reason: FinishReason) {
-        delegate?.playerDidFinish(self, reason: reason)
-        objcDelegate?.playerView?(self, didFinishWithReason: reason)
-    }
-
-    /// 不可恢复错误回调。每个 session 最多一次，不会再跟 finish。
-    private func notifyFailure(_ error: Error) {
-        delegate?.player(self, didFail: error)
-        objcDelegate?.playerView?(self, didFailWithError: error as NSError)
+    /// 离窗或失活时立即冻结画面和声音，stop 策略产生明确终态。
+    private func handleBackground() {
+        guard let target = session else { return }
+        switch target.options.backgroundPolicy {
+        // 挂起保留媒体位置，不把系统切换当成自然完成。
+        case .suspend:
+            target.suspend()
+        // 停止策略完整结算并进入同一受管排空路径。
+        case .stop:
+            retireCurrent(reason: .stopped)
+        }
     }
 }
 
-/// play 前对当前 session 的判定结果：复用 ready session，或必须重新 prepare。
-private struct PlayPreparation {
-    /// 即将用于 play 的 session。
-    let target: PlaybackSession
-    /// `true` 表示还要走 prepare；`false` 表示当前 session 已 ready，可直接 play。
-    let requiresPrepare: Bool
-}
+/// UIKit 宿主忘记显式清理时的资源兜底 owner，不将异步任务丢给 deinit 后无人管理。
+@MainActor
+private enum PlaybackRetirementOwner {
+    /// 尚未排空的会话任务；完成后移除，不无限保留已结束会话。
+    static var tasks: [SessionToken: Task<Void, Never>] = [:]
 
-/// `PlaybackOptions` 的不可变快照，用于判断 prepared session 是否仍匹配宿主配置。
-private struct OptionsSignature: Equatable {
-    let assetMode: PlaybackAssetMode
-    let loopCount: Int
-    let contentMode: UIView.ContentMode
-    let audioMode: AudioMode
-    let clearsAfterFinish: Bool
-    let backgroundPolicy: BackgroundPolicy
-    let dynamicImagePlaybackMode: DynamicImagePlaybackMode
-    let dynamicTextOverflowMode: DynamicTextOverflowMode
-    let marqueeSpeed: CGFloat
-    let marqueeStartDelay: TimeInterval
-
-    init(_ options: PlaybackOptions) {
-        assetMode = options.assetMode
-        loopCount = options.loopCount
-        contentMode = options.contentMode
-        audioMode = options.audioMode
-        clearsAfterFinish = options.clearsAfterFinish
-        backgroundPolicy = options.backgroundPolicy
-        dynamicImagePlaybackMode = options.dynamicImagePlaybackMode
-        dynamicTextOverflowMode = options.dynamicTextOverflowMode
-        marqueeSpeed = options.marqueeSpeed
-        marqueeStartDelay = options.marqueeStartDelay
+    /// 接管一次会话并等待其真实清理完成；不触碰其他播放器的文件或缓存。
+    static func retire(_ session: PlaybackSession) {
+        session.stop(reason: .cancelled)
+        tasks[session.token] = Task { @MainActor in
+            await session.clearAndWait()
+            tasks[session.token] = nil
+        }
     }
 }

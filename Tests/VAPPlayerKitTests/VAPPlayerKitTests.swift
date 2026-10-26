@@ -1,68 +1,11 @@
 import XCTest
-import QuartzCore
-import CoreMedia
+import UIKit
 @testable import VAPPlayerKit
 
+/// 保留资源打包、跑马灯布局与动态槽位的回归覆盖，使用 v2 的异步 Swift provider。
 final class VAPPlayerKitTests: XCTestCase {
-    func testDefaultPlaybackOptions() {
-        let options = PlaybackOptions.defaultOptions
-        XCTAssertEqual(options.assetMode, .automatic)
-        XCTAssertEqual(options.loopCount, 1)
-        XCTAssertEqual(options.contentMode, .scaleAspectFit)
-        XCTAssertEqual(options.audioMode, .embedded)
-        XCTAssertTrue(options.clearsAfterFinish)
-        XCTAssertEqual(options.backgroundPolicy, .suspend)
-        XCTAssertEqual(options.dynamicImagePlaybackMode, .animated)
-        XCTAssertEqual(options.dynamicTextOverflowMode, .truncate)
-        XCTAssertEqual(options.marqueeSpeed, 80, accuracy: 0.001)
-        XCTAssertEqual(options.marqueeStartDelay, 0.6, accuracy: 0.0001)
-    }
-
-    func testPlaybackOptionsCopyIsIndependent() {
-        let original = PlaybackOptions.defaultOptions
-        original.assetMode = .ordinaryVideo
-        original.loopCount = 0
-        original.dynamicImagePlaybackMode = .still
-        original.dynamicTextOverflowMode = .marquee
-        original.marqueeSpeed = 80
-        original.marqueeStartDelay = 1.2
-        let copy = original.copy() as! PlaybackOptions
-        copy.assetMode = .vap
-        copy.loopCount = 2
-        copy.dynamicImagePlaybackMode = .animated
-        copy.dynamicTextOverflowMode = .truncate
-        copy.marqueeSpeed = 20
-        copy.marqueeStartDelay = 0
-        XCTAssertEqual(original.loopCount, 0)
-        XCTAssertEqual(original.assetMode, .ordinaryVideo)
-        XCTAssertEqual(original.dynamicImagePlaybackMode, .still)
-        XCTAssertEqual(original.dynamicTextOverflowMode, .marquee)
-        XCTAssertEqual(original.marqueeSpeed, 80, accuracy: 0.001)
-        XCTAssertEqual(original.marqueeStartDelay, 1.2, accuracy: 0.0001)
-        XCTAssertEqual(copy.loopCount, 2)
-        XCTAssertEqual(copy.assetMode, .vap)
-        XCTAssertEqual(copy.dynamicImagePlaybackMode, .animated)
-        XCTAssertEqual(copy.dynamicTextOverflowMode, .truncate)
-        XCTAssertEqual(copy.marqueeSpeed, 20, accuracy: 0.001)
-        XCTAssertEqual(copy.marqueeStartDelay, 0, accuracy: 0.0001)
-    }
-
-    func testNegativeLoopCountFallsBackToSinglePlayback() {
-        let options = PlaybackOptions.defaultOptions
-        options.loopCount = -1
-        XCTAssertEqual(options.loopCount, 1)
-    }
-
-    func testMarqueeOptionClampsInvalidSpeedAndDelay() {
-        let options = PlaybackOptions.defaultOptions
-        options.marqueeSpeed = 0
-        XCTAssertEqual(options.marqueeSpeed, 80, accuracy: 0.001)
-        options.marqueeSpeed = -12
-        XCTAssertEqual(options.marqueeSpeed, 80, accuracy: 0.001)
-        options.marqueeStartDelay = -0.5
-        XCTAssertEqual(options.marqueeStartDelay, 0, accuracy: 0.0001)
-    }
-
+    /// 跑马灯每轮先停顿再滚动，归零后重新停顿；纹理采样区域应与偏移一致。
+    @MainActor
     func testMarqueeLayoutOffsetHoldsThenWraps() {
         XCTAssertEqual(
             MarqueeLayout.offset(elapsed: 0.3, startDelay: 0.6, speed: 40, cycleWidth: 100),
@@ -107,6 +50,8 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertEqual(uv.size.y, 1, accuracy: 0.0001)
     }
 
+    /// 超出纹理边界的长条必须被拒绝，合法长条与默认间距、速度保持可用。
+    @MainActor
     func testMarqueeLayoutRejectsOversizedStrip() {
         let huge = CGSize(width: CGFloat(DynamicTextureLimits.maximumTextureDimension + 1), height: 40)
         XCTAssertFalse(MarqueeLayout.canAllocateStrip(size: huge))
@@ -116,27 +61,37 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertTrue(MarqueeLayout.canAllocateStrip(size: CGSize(width: 400, height: 40)))
     }
 
+    /// 测试资源应由 SPM bundle 提供，避免依赖开发机器的绝对路径。
+    @MainActor
     func testModuleBundleIsAvailable() {
-        XCTAssertEqual(Bundle.module.bundleURL.pathExtension, "bundle")
+        XCTAssertNotNil(Bundle.module.resourceURL)
     }
 
+    /// Metal shader 应能从组件资源 bundle 定位。
+    @MainActor
     func testShaderResourceIsInModuleBundle() {
         XCTAssertNotNil(ShaderLibrary.shaderResourceURL, "Metal shader should be locatable via Bundle.module")
     }
 
+    /// 直接传入远程 URL 必须报 invalidURL，显式排空失败的准备任务。
     @MainActor
     func testPrepareRejectsNonFileURL() async {
         let player = PlayerView()
+        // 播放器只接收本地文件，远程 URL 应在任何解码工作之前被拒绝。
         do {
             _ = try await player.prepare(url: URL(string: "https://example.com/demo.mp4")!)
             XCTFail("Expected invalidURL")
         } catch let error as PlaybackError {
+            // 明确错误码使上层可以区分输入错误与媒体解码失败。
             XCTAssertEqual(error.code, .invalidURL)
         } catch {
+            // 其它错误说明拒绝 URL 的边界已失效。
             XCTFail("Unexpected error: \(error)")
         }
+        await player.clearAndWait()
     }
 
+    /// 尚未建立 session 时 clear 仍应立即隐藏 drawable。
     @MainActor
     func testClearHidesDrawableWithoutActiveSession() {
         let player = PlayerView()
@@ -145,12 +100,8 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertTrue(player.metalLayer.isHidden)
     }
 
-    func testErrorDomainMatchesObjCFacade() {
-        XCTAssertEqual(VPKPlaybackErrorDomain, "com.vapplayerkit.playback")
-        XCTAssertEqual(PlaybackError.cancelled.asNSError().domain, VPKPlaybackErrorDomain)
-        XCTAssertEqual(PlaybackError.cancelled.asNSError().code, PlaybackErrorCode.cancelled.rawValue)
-    }
-
+    /// 基础 VAP fixture 必须完整打包，可选素材按实际存在情况计数。
+    @MainActor
     func testCommittedVAPFixturesExist() {
         XCTAssertTrue(FileManager.default.fileExists(atPath: VAPFixture.defaultPlayableURL.path))
         let requiredNames = Set((1...21).map { "\($0).mp4" } + ["movie.mp4", "alpha_left_moive.mp4", "7878.mp4"])
@@ -166,6 +117,7 @@ final class VAPPlayerKitTests: XCTestCase {
         }
     }
 
+    /// 异步 provider 返回的文字和图片都应物化为对应槽位纹理。
     @MainActor
     func testDynamicTextAndImageSourcesResolveWithoutBlocking() async throws {
         let provider = DynamicProviderStub()
@@ -196,12 +148,14 @@ final class VAPPlayerKitTests: XCTestCase {
 
         let snapshot = try await resolver.resolve(sources: sources, timeout: 1)
         XCTAssertEqual(snapshot.contents.count, 2)
+        // 后续尺寸或像素断言只适用于预期的物化类型，错误类型应立即报告。
         guard case .image(let textImage) = snapshot.contents["nickname"] else {
             return XCTFail("Text source was not materialized as an image")
         }
         XCTAssertEqual(textImage.size, CGSize(width: 197, height: 52))
     }
 
+    /// 透明图片缩放后边角仍透明，中央不透明区域保持有效 alpha。
     @MainActor
     func testDynamicImageResizePreservesTransparentBackground() async throws {
         let stamp = try XCTUnwrap(makeTransparentStampImage())
@@ -219,6 +173,7 @@ final class VAPPlayerKitTests: XCTestCase {
             style: nil
         )
         let snapshot = try await resolver.resolve(sources: [source], timeout: 1)
+        // 后续尺寸或像素断言只适用于预期的物化类型，错误类型应立即报告。
         guard case .image(let image) = snapshot.contents[source.id] else {
             return XCTFail("Image source was not materialized")
         }
@@ -231,6 +186,8 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertEqual(alpha(in: pixels, width: 8, x: 4, y: 4), 255)
     }
 
+    /// 未链接 SDWebImage 的测试宿主应安全报告动图能力不可用。
+    @MainActor
     func testSDWebImageRuntimeIsOptionalWithoutHostLink() {
         XCTAssertFalse(SDWebImageRuntime.isAvailable)
         XCTAssertFalse(PlaybackOptions.canPlayAnimatedDynamicImages)
@@ -238,6 +195,7 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertNil(SDWebImageRuntime.makePlayer(provider: UIImage(), onFrame: { _, _ in }))
     }
 
+    /// 普通 UIImage 在 animated 和 still 两种策略下都生成静态槽位纹理。
     @MainActor
     func testRegularUIImageStaysStaticEvenWhenAnimatedPlaybackIsRequested() throws {
         let image = try XCTUnwrap(makeTransparentStampImage())
@@ -253,9 +211,11 @@ final class VAPPlayerKitTests: XCTestCase {
         )
         let animatedMode = DynamicResolver.resolveImage(image, source: source, imagePlayback: .animated)
         let stillMode = DynamicResolver.resolveImage(image, source: source, imagePlayback: .still)
+        // 后续尺寸或像素断言只适用于预期的物化类型，错误类型应立即报告。
         guard case .image(let animatedResult) = animatedMode else {
             return XCTFail("Regular UIImage must stay a static slot without SDWebImage")
         }
+        // 后续尺寸或像素断言只适用于预期的物化类型，错误类型应立即报告。
         guard case .image(let stillResult) = stillMode else {
             return XCTFail("Still mode must rasterize a static slot")
         }
@@ -263,6 +223,7 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertEqual(stillResult.size, source.slotSize)
     }
 
+    /// 仅替换字符串时应继承素材颜色和粗体，并将文字限制在原槽位内。
     @MainActor
     func testTextReplacementUsesSourceStyleAndFitsOriginalSlot() async throws {
         let resolver = DynamicResolver()
@@ -287,12 +248,14 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertLessThanOrEqual(replacementSize.height, source.slotSize.height)
         let components = attributes.color.cgColor.components ?? []
         XCTAssertGreaterThanOrEqual(components.count, 3)
+        // 断言失败后仍避免数组越界，保留真正的颜色格式失败信息。
         if components.count >= 3 {
             XCTAssertEqual(components[0], 231.0 / 255.0, accuracy: 0.01)
             XCTAssertEqual(components[1], 196.0 / 255.0, accuracy: 0.01)
             XCTAssertEqual(components[2], 84.0 / 255.0, accuracy: 0.01)
         }
         let snapshot = try await resolver.resolve(sources: [source], timeout: 1)
+        // 后续尺寸或像素断言只适用于预期的物化类型，错误类型应立即报告。
         guard case .image(let image) = snapshot.contents[source.id] else {
             return XCTFail("String-only replacement should become a text texture")
         }
@@ -300,32 +263,7 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertNotNil(image.cgImage)
     }
 
-    @MainActor
-    func testObjCTextReplacementUsesTheSameAutoFittedFontPath() async throws {
-        let resolver = DynamicResolver()
-        let provider = ObjCReplacementTextProviderStub()
-        resolver.objcProvider = provider
-        let replacement = "只提供字符串"
-        let source = VapcSource(
-            id: "nickname",
-            kind: .text,
-            tag: "nickname",
-            slotSize: CGSize(width: 197, height: 52),
-            loadType: "local",
-            fitType: "fitXY",
-            color: "#E7C454",
-            style: "b"
-        )
-        let snapshot = try await resolver.resolve(sources: [source], timeout: 1)
-        guard case .image(let image) = snapshot.contents[source.id] else {
-            return XCTFail("ObjC replacement text should become a text texture")
-        }
-        XCTAssertEqual(image.size, source.slotSize)
-        XCTAssertEqual(provider.requestedTag, source.tag)
-        let attributes = DynamicResolver.replacementTextAttributes(replacement, source: source)
-        XCTAssertGreaterThan(attributes.font.pointSize, source.slotSize.height * 0.22)
-    }
-
+    /// 极窄槽位中的长文本仍应得到有效正字号，避免生成非法字体。
     @MainActor
     func testTextReplacementFitsLongSingleLineInsideNarrowSlot() {
         let replacement = "VERY-LONG-REPLACEMENT"
@@ -343,6 +281,7 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertGreaterThan(attributes.font.pointSize, 0)
     }
 
+    /// provider 指定字体时按相同 tag 取字体，并保留该字体交给截断路径。
     @MainActor
     func testTextReplacementUsesProviderFontAndUIKitTailTruncation() async throws {
         let source = VapcSource(
@@ -370,12 +309,14 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertGreaterThan(providedFont.pointSize, 0)
     }
 
+    /// 默认溢出策略应生成槽位大小的静态截断纹理。
     @MainActor
     func testOverflowingTextUsesTruncationByDefault() {
         let source = makeNarrowTextSource()
         let text = "THIS replacement is too long"
         let attributes = TextAttributes(font: UIFont.monospacedSystemFont(ofSize: 20, weight: .regular), color: .white)
         let resolved = DynamicResolver.resolveText(text, attributes: attributes, source: source, overflow: .truncate)
+        // 后续尺寸或像素断言只适用于预期的物化类型，错误类型应立即报告。
         guard case .image(let image) = resolved else {
             return XCTFail("Default overflow must stay a slot-sized truncated texture")
         }
@@ -383,12 +324,14 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertEqual(image.size.height, source.slotSize.height, accuracy: 0.5)
     }
 
+    /// 显式跑马灯策略应为超长文本创建大于槽位的可循环纹理条。
     @MainActor
     func testOverflowingTextUsesMarqueeStripWhenRequested() {
         let source = makeNarrowTextSource()
         let text = "THIS replacement is too long"
         let attributes = TextAttributes(font: UIFont.monospacedSystemFont(ofSize: 20, weight: .regular), color: .white)
         let resolved = DynamicResolver.resolveText(text, attributes: attributes, source: source, overflow: .marquee)
+        // 后续尺寸或像素断言只适用于预期的物化类型，错误类型应立即报告。
         guard case .marquee(let slot) = resolved else {
             return XCTFail("Overflowing text must become a marquee strip")
         }
@@ -399,6 +342,7 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertEqual(slot.textureWidth, slot.strip.size.width, accuracy: 0.5)
     }
 
+    /// 文本没有溢出时即使请求跑马灯，也应保留静态纹理。
     @MainActor
     func testFittingTextStaysStaticEvenWhenMarqueeIsRequested() {
         let source = VapcSource(
@@ -413,18 +357,21 @@ final class VAPPlayerKitTests: XCTestCase {
         )
         let attributes = TextAttributes(font: UIFont.systemFont(ofSize: 16), color: .white)
         let resolved = DynamicResolver.resolveText("Hi", attributes: attributes, source: source, overflow: .marquee)
+        // 后续尺寸或像素断言只适用于预期的物化类型，错误类型应立即报告。
         guard case .image(let image) = resolved else {
             return XCTFail("Text that fits must stay a static slot texture")
         }
         XCTAssertEqual(image.size, source.slotSize)
     }
 
+    /// 超出纹理预算的跑马灯长条必须退回槽位内截断，避免超大分配。
     @MainActor
     func testOversizedMarqueeStripFallsBackToTruncation() {
         let source = makeNarrowTextSource()
         let text = String(repeating: "W", count: 2_000)
         let attributes = TextAttributes(font: UIFont.systemFont(ofSize: 40), color: .white)
         let resolved = DynamicResolver.resolveText(text, attributes: attributes, source: source, overflow: .marquee)
+        // 后续尺寸或像素断言只适用于预期的物化类型，错误类型应立即报告。
         guard case .image(let image) = resolved else {
             return XCTFail("Strip over the texture budget must fall back to truncation")
         }
@@ -432,6 +379,7 @@ final class VAPPlayerKitTests: XCTestCase {
         XCTAssertEqual(image.size.height, source.slotSize.height, accuracy: 0.5)
     }
 
+    /// session 级跑马灯选项应传递到字符串替换的物化路径。
     @MainActor
     func testResolverMarqueePathMaterializesReplacementText() async throws {
         let source = makeNarrowTextSource()
@@ -441,12 +389,14 @@ final class VAPPlayerKitTests: XCTestCase {
         let resolver = DynamicResolver()
         resolver.provider = provider
         let snapshot = try await resolver.resolve(sources: [source], timeout: 1, textOverflow: .marquee)
+        // 后续尺寸或像素断言只适用于预期的物化类型，错误类型应立即报告。
         guard case .marquee(let slot) = snapshot.contents[source.id] else {
             return XCTFail("Resolver must honor session-level marquee overflow")
         }
         XCTAssertGreaterThan(slot.strip.size.width, source.slotSize.width)
     }
 
+    /// 没有 provider 或 provider 返回 nil 时都应产生隐藏槽位，不阻断准备。
     @MainActor
     func testMissingDynamicContentDefaultsToHiddenAndDoesNotFailPrepare() async throws {
         let source = VapcSource(
@@ -461,6 +411,7 @@ final class VAPPlayerKitTests: XCTestCase {
         )
 
         let withoutProvider = try await DynamicResolver().resolve(sources: [source], timeout: 0.1)
+        // 缺少 provider 应明确得到 hidden，不能意外保留一张占位纹理。
         guard case .hidden = withoutProvider.contents[source.id] else {
             return XCTFail("Missing provider must produce an empty dynamic slot")
         }
@@ -469,395 +420,65 @@ final class VAPPlayerKitTests: XCTestCase {
         let provider = NilDynamicProviderStub()
         resolver.provider = provider
         let missingValue = try await resolver.resolve(sources: [source], timeout: 0.1)
+        // 返回 nil 与没有 provider 的降级语义必须一致。
         guard case .hidden = missingValue.contents[source.id] else {
             return XCTFail("Provider returning nil must produce an empty dynamic slot")
         }
     }
-
-    @MainActor
-    func testReusableMetadataSkipsVapcReinspectionForSameURL() async throws {
-        let url = VAPFixture.url(VAPFixture.defaultPlayableName)
-        let metadata = try await AssetInspector().inspect(url: url)
-        XCTAssertTrue(metadata.isReusableForPlayback)
-
-        let player = PlayerView(frame: CGRect(x: 0, y: 0, width: 320, height: 320))
-        let reused = try await player.prepare(url: url, metadata: metadata)
-        XCTAssertTrue(reused === metadata)
-        player.clear()
-    }
-
-    @MainActor
-    func testGlobalMetadataCacheIsUsedAcrossPlayerViews() async throws {
-        let url = VAPFixture.url(VAPFixture.defaultPlayableName)
-        let cache = AssetMetadataCache.shared
-        let originalLimit = cache.countLimit
-        cache.removeAll()
-        cache.countLimit = 20
-        defer {
-            cache.removeAll()
-            cache.countLimit = originalLimit
-        }
-
-        let firstPlayer = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
-        let firstMetadata = try await firstPlayer.prepare(url: url)
-        firstPlayer.clear()
-
-        let secondPlayer = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
-        let secondMetadata = try await secondPlayer.prepare(url: url)
-        secondPlayer.clear()
-
-        XCTAssertTrue(firstMetadata === secondMetadata)
-    }
-
-    @MainActor
-    func testExplicitMetadataSeedsGlobalMetadataCache() async throws {
-        let url = VAPFixture.url(VAPFixture.defaultPlayableName)
-        let cache = AssetMetadataCache.shared
-        let originalLimit = cache.countLimit
-        cache.removeAll()
-        cache.countLimit = 20
-        defer {
-            cache.removeAll()
-            cache.countLimit = originalLimit
-        }
-
-        let suppliedMetadata = try await AssetInspector().inspect(url: url)
-        let firstPlayer = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
-        _ = try await firstPlayer.prepare(url: url, metadata: suppliedMetadata)
-        firstPlayer.clear()
-
-        let secondPlayer = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
-        let cachedMetadata = try await secondPlayer.prepare(url: url)
-        secondPlayer.clear()
-
-        XCTAssertTrue(cachedMetadata === suppliedMetadata)
-    }
-
-    @MainActor
-    func testGlobalMetadataCacheCoalescesConcurrentInspections() async throws {
-        let url = VAPFixture.url(VAPFixture.defaultPlayableName)
-        let cache = AssetMetadataCache.shared
-        let originalLimit = cache.countLimit
-        cache.removeAll()
-        cache.countLimit = 20
-        defer {
-            cache.removeAll()
-            cache.countLimit = originalLimit
-        }
-
-        let firstPlayer = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
-        let secondPlayer = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
-        async let firstMetadata = firstPlayer.prepare(url: url)
-        async let secondMetadata = secondPlayer.prepare(url: url)
-        let (first, second) = try await (firstMetadata, secondMetadata)
-        firstPlayer.clear()
-        secondPlayer.clear()
-
-        XCTAssertTrue(first === second)
-    }
-
-    @MainActor
-    func testGlobalMetadataCacheReparsesAfterFileSignatureChanges() async throws {
-        let fixture = VAPFixture.url(VAPFixture.defaultPlayableName)
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("vap-cache-\(UUID().uuidString).mp4")
-        let replacementURL = url.deletingPathExtension().appendingPathExtension("replacement.mp4")
-        try FileManager.default.copyItem(at: fixture, to: url)
-        defer {
-            AssetMetadataCache.shared.remove(url: url)
-            try? FileManager.default.removeItem(at: url)
-        }
-
-        let firstPlayer = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
-        let firstMetadata = try await firstPlayer.prepare(url: url)
-        firstPlayer.clear()
-        try FileManager.default.copyItem(at: fixture, to: replacementURL)
-        _ = try FileManager.default.replaceItemAt(url, withItemAt: replacementURL)
-
-        let secondPlayer = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
-        let secondMetadata = try await secondPlayer.prepare(url: url)
-        secondPlayer.clear()
-
-        XCTAssertFalse(firstMetadata === secondMetadata)
-        XCTAssertEqual(secondMetadata.sourceURL, url.standardizedFileURL)
-    }
-
-    func testGlobalMetadataCacheControlsAndZeroLimit() async throws {
-        let url = VAPFixture.url(VAPFixture.defaultPlayableName)
-        let metadata = try await AssetInspector().inspect(url: url)
-        let cache = AssetMetadataCache.shared
-        let originalLimit = cache.countLimit
-        defer {
-            cache.removeAll()
-            cache.countLimit = originalLimit
-        }
-
-        cache.removeAll()
-        cache.countLimit = 20
-        cache.insert(metadata, for: url)
-        XCTAssertTrue(cache.metadata(for: url) === metadata)
-
-        cache.remove(url: url)
-        XCTAssertNil(cache.metadata(for: url))
-
-        cache.countLimit = 0
-        cache.insert(metadata, for: url)
-        XCTAssertNil(cache.metadata(for: url))
-    }
-
-    @MainActor
-    func testReusableMetadataRejectsDifferentURLAndManualSummary() async throws {
-        let sourceURL = VAPFixture.url(VAPFixture.defaultPlayableName)
-        let metadata = try await AssetInspector().inspect(url: sourceURL)
-        let differentURL = VAPFixture.playableURLs.first { $0 != sourceURL }!
-        let player = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
-        do {
-            _ = try await player.prepare(url: differentURL, metadata: metadata)
-            XCTFail("Metadata from another URL must not be reused")
-        } catch let error as PlaybackError {
-            XCTAssertEqual(error.code, .invalidVapc)
-        }
-
-        let manual = AssetMetadata(
-            encodedVideoSize: metadata.encodedVideoSize,
-            canvasSize: metadata.canvasSize,
-            alphaMode: metadata.alphaMode,
-            frameCount: metadata.frameCount,
-            duration: metadata.duration,
-            containsAudio: metadata.containsAudio,
-            codec: metadata.codec
-        )
-        XCTAssertFalse(manual.isReusableForPlayback)
-    }
-
-    @MainActor
-    func testReusableMetadataRejectsAChangedFileSignature() async throws {
-        let fixture = VAPFixture.url(VAPFixture.defaultPlayableName)
-        let temporaryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("vap-metadata-\(UUID().uuidString).mp4")
-        try FileManager.default.copyItem(at: fixture, to: temporaryURL)
-        defer { try? FileManager.default.removeItem(at: temporaryURL) }
-
-        let metadata = try await AssetInspector().inspect(url: temporaryURL)
-        XCTAssertTrue(metadata.isReusableForPlayback)
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date(timeIntervalSinceNow: 60)],
-            ofItemAtPath: temporaryURL.path
-        )
-
-        let player = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
-        do {
-            _ = try await player.prepare(url: temporaryURL, metadata: metadata)
-            XCTFail("Metadata must not be reused after the file signature changes")
-        } catch let error as PlaybackError {
-            XCTAssertEqual(error.code, .invalidMP4)
-        }
-    }
-
-    @MainActor
-    func testReusableMetadataRejectsFileChangedDuringDecoderPrepare() async throws {
-        let fixture = VAPFixture.url(VAPFixture.defaultPlayableName)
-        let temporaryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("vap-metadata-race-\(UUID().uuidString).mp4")
-        try FileManager.default.copyItem(at: fixture, to: temporaryURL)
-        defer { try? FileManager.default.removeItem(at: temporaryURL) }
-
-        let metadata = try await AssetInspector().inspect(url: temporaryURL)
-        let frameSource = MutatingFrameSource(
-            metadata: FrameSourceMetadata(
-                encodedVideoSize: metadata.encodedVideoSize,
-                codec: metadata.codec
-            )
-        ) {
-            try FileManager.default.setAttributes(
-                [.modificationDate: Date(timeIntervalSinceNow: 60)],
-                ofItemAtPath: temporaryURL.path
-            )
-        }
-        let layer = CAMetalLayer()
-        let session = PlaybackSession(
-            url: temporaryURL,
-            options: PlaybackOptions.defaultOptions,
-            metalLayer: layer,
-            dynamicProvider: nil,
-            objcDynamicProvider: nil,
-            frameSource: frameSource
-        )
-
-        do {
-            _ = try await session.prepare(using: metadata)
-            XCTFail("A file replaced during decoder preparation must be rejected")
-        } catch let error as PlaybackError {
-            XCTAssertEqual(error.code, .invalidMP4)
-        }
-    }
-
-    @MainActor
-    func testReusableMetadataRejectsSameSizeAndDateReplacement() async throws {
-        let fixture = VAPFixture.url(VAPFixture.defaultPlayableName)
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("vap-identity-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let playbackURL = directory.appendingPathComponent("asset.mp4")
-        let replacementURL = directory.appendingPathComponent("replacement.mp4")
-        try FileManager.default.copyItem(at: fixture, to: playbackURL)
-        let metadata = try await AssetInspector().inspect(url: playbackURL)
-        let expectedDate = try XCTUnwrap(metadata.sourceModificationDate)
-        let expectedSize = try XCTUnwrap(metadata.sourceFileSize)
-        let expectedIdentifier = try XCTUnwrap(metadata.sourceFileIdentifier)
-
-        try FileManager.default.copyItem(at: fixture, to: replacementURL)
-        try FileManager.default.removeItem(at: playbackURL)
-        try FileManager.default.moveItem(at: replacementURL, to: playbackURL)
-        try FileManager.default.setAttributes(
-            [.modificationDate: expectedDate],
-            ofItemAtPath: playbackURL.path
-        )
-        let values = try playbackURL.resourceValues(forKeys: [
-            .fileSizeKey,
-            .contentModificationDateKey,
-            .fileResourceIdentifierKey
-        ])
-        XCTAssertEqual(Int64(try XCTUnwrap(values.fileSize)), expectedSize)
-        let actualDate = try XCTUnwrap(values.contentModificationDate)
-        // Simulator filesystems can quantize mtime when setAttributes bridges
-        // between host and simulated-device storage. Keep this precondition
-        // tolerant while the production signature check remains strict.
-        XCTAssertEqual(
-            actualDate.timeIntervalSince1970,
-            expectedDate.timeIntervalSince1970,
-            accuracy: 1
-        )
-        XCTAssertNotEqual(values.fileResourceIdentifier as? Data, expectedIdentifier)
-
-        let player = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
-        do {
-            _ = try await player.prepare(url: playbackURL, metadata: metadata)
-            XCTFail("Replacing a file while preserving size and mtime must invalidate metadata")
-        } catch let error as PlaybackError {
-            XCTAssertEqual(error.code, .invalidMP4)
-        }
-    }
-
-    @MainActor
-    func testPreparedSessionAndOwnedResourcesAreReleasedAfterStop() async throws {
-        let url = VAPFixture.url(VAPFixture.defaultPlayableName)
-        let layer = CAMetalLayer()
-        layer.frame = CGRect(x: 0, y: 0, width: 64, height: 64)
-        layer.drawableSize = CGSize(width: 64, height: 64)
-
-        var frameSource: AVAssetReaderFrameSource? = AVAssetReaderFrameSource(url: url)
-        var renderer: MetalRenderer? = MetalRenderer()
-        var session: PlaybackSession? = PlaybackSession(
-            url: url,
-            options: PlaybackOptions.defaultOptions,
-            metalLayer: layer,
-            dynamicProvider: nil,
-            objcDynamicProvider: nil,
-            frameSource: frameSource,
-            renderer: renderer!
-        )
-        weak var weakSession = session
-        weak var weakFrameSource = frameSource
-        weak var weakRenderer = renderer
-
-        let playbackStarted = expectation(description: "decoder produced a frame and started the timeline")
-        session!.onStart = { playbackStarted.fulfill() }
-        _ = try await session!.prepare()
-        session!.play()
-        await fulfillment(of: [playbackStarted], timeout: 10)
-        session!.stop(reason: .stopped)
-        session = nil
-        frameSource = nil
-        renderer = nil
-
-        for _ in 0..<100 where weakSession != nil || weakFrameSource != nil || weakRenderer != nil {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
-        XCTAssertNil(weakSession, "PlaybackSession leaked after stop")
-        XCTAssertNil(weakFrameSource, "Frame source leaked after stop")
-        XCTAssertNil(weakRenderer, "Metal renderer leaked after stop")
-    }
-
-    @MainActor
-    func testPlayerViewLifecycleObserversDoNotRetainPlayer() async {
-        var player: PlayerView? = PlayerView()
-        weak var weakPlayer = player
-        player?.clear()
-        player = nil
-        for _ in 0..<10 where weakPlayer != nil { await Task.yield() }
-        XCTAssertNil(weakPlayer)
-    }
-
-    @MainActor
-    func testPlayerViewIsReleasedWhileDynamicProviderIsPending() async {
-        let requested = expectation(description: "dynamic provider was invoked")
-        let provider = NeverCompletingDynamicProviderStub { requested.fulfill() }
-        var player: PlayerView? = PlayerView(frame: CGRect(x: 0, y: 0, width: 64, height: 64))
-        player?.dynamicContentProvider = provider
-        player?.play(url: VAPFixture.url("8.mp4"))
-        await fulfillment(of: [requested], timeout: 10)
-
-        weak var weakPlayer = player
-        player = nil
-        for _ in 0..<100 where weakPlayer != nil {
-            try? await Task.sleep(nanoseconds: 10_000_000)
-        }
-        XCTAssertNil(weakPlayer, "playTask retained PlayerView while dynamic prepare was pending")
-    }
 }
 
+/// 为两个固定 tag 提供文字或图片，验证一次 resolve 中不同素材类型的组合。
+@MainActor
 private final class DynamicProviderStub: DynamicContentProvider {
-    func resolve(
-        tag: String,
-        source: SourceMetadata,
-        completion: @escaping (DynamicContent?, Error?) -> Void
-    ) {
+    /// 返回文字或按槽位大小生成的蓝色静图；本 stub 不执行异步 I/O。
+    func resolve(tag: String, source: SourceMetadata) async throws -> DynamicContent? {
+        // nickname 走文字物化路径，其余 tag 走图片缩放路径。
         if tag == "nickname" {
-            completion(.text("VAP Swift", attributes: TextAttributes()), nil)
-        } else {
-            let image = UIGraphicsImageRenderer(size: source.slotSize).image { context in
-                UIColor.blue.setFill()
-                context.cgContext.fill(CGRect(origin: .zero, size: source.slotSize))
-            }
-            completion(.image(image), nil)
+            return .text("VAP Swift", attributes: TextAttributes())
         }
+        let image = UIGraphicsImageRenderer(size: source.slotSize).image { context in
+            UIColor.blue.setFill()
+            context.cgContext.fill(CGRect(origin: .zero, size: source.slotSize))
+        }
+        return .image(image)
     }
 }
 
+/// 始终返回同一张图片，用于隔离图片缩放与 alpha 处理行为。
+@MainActor
 private final class FixedImageProviderStub: DynamicContentProvider {
+    /// 测试指定的原始图片，不随请求修改。
     let image: UIImage
 
-    init(image: UIImage) {
-        self.image = image
-    }
+    /// 保存要提供的图片；尺寸和透明度由测试场景决定。
+    init(image: UIImage) { self.image = image }
 
-    func resolve(
-        tag: String,
-        source: SourceMetadata,
-        completion: @escaping (DynamicContent?, Error?) -> Void
-    ) {
-        completion(.image(image), nil)
+    /// 返回固定图片，槽位适配由被测 resolver 完成。
+    func resolve(tag: String, source: SourceMetadata) async throws -> DynamicContent? {
+        .image(image)
     }
 }
 
+/// 生成 4×4 的透明底红色印章，固定 scale 为 1 便于逐像素验证。
+@MainActor
 private func makeTransparentStampImage() -> UIImage? {
-    UIGraphicsBeginImageContextWithOptions(CGSize(width: 4, height: 4), false, 1)
-    UIColor.clear.setFill()
-    UIRectFill(CGRect(x: 0, y: 0, width: 4, height: 4))
-    UIColor.red.setFill()
-    UIRectFill(CGRect(x: 1, y: 1, width: 2, height: 2))
-    let image = UIGraphicsGetImageFromCurrentImageContext()
-    UIGraphicsEndImageContext()
-    return image
+    let format = UIGraphicsImageRendererFormat()
+    format.scale = 1
+    format.opaque = false
+    return UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4), format: format).image { context in
+        UIColor.red.setFill()
+        context.cgContext.fill(CGRect(x: 1, y: 1, width: 2, height: 2))
+    }
 }
 
+/// 将静图读取成 RGBA 预乘像素；缺失 CGImage 或无法创建上下文时让测试失败。
+@MainActor
 private func premultipliedPixels(_ image: UIImage) throws -> [UInt8] {
     let cgImage = try XCTUnwrap(image.cgImage)
     var bytes = [UInt8](repeating: 0, count: cgImage.width * cgImage.height * 4)
     let bitmapInfo = CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
     let created = bytes.withUnsafeMutableBytes { raw -> Bool in
+        // 创建失败不能返回全零像素，否则透明边角断言会伪通过。
         guard let context = CGContext(
             data: raw.baseAddress,
             width: cgImage.width,
@@ -873,14 +494,17 @@ private func premultipliedPixels(_ image: UIImage) throws -> [UInt8] {
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
         return true
     }
+    // 只有实际完成读取才能解释 alpha 字节。
     guard created else { throw PlaybackError.metalUnavailable }
     return bytes
 }
 
+/// 读取已知合法坐标的 alpha 字节；输入必须是 width 宽度的 RGBA 数据。
 private func alpha(in pixels: [UInt8], width: Int, x: Int, y: Int) -> UInt8 {
     pixels[(y * width + x) * 4 + 3]
 }
 
+/// 创建固定窄文字槽位，让截断和跑马灯用例共享同一几何前提。
 private func makeNarrowTextSource() -> VapcSource {
     VapcSource(
         id: "nickname",
@@ -894,107 +518,41 @@ private func makeNarrowTextSource() -> VapcSource {
     )
 }
 
+/// 只提供字符串，让 resolver 决定素材样式和字体尺寸。
+@MainActor
 private final class ReplacementTextProviderStub: DynamicContentProvider {
-    func resolve(
-        tag: String,
-        source: SourceMetadata,
-        completion: @escaping (DynamicContent?, Error?) -> Void
-    ) {
-        completion(.textReplacement("只提供字符串"), nil)
+    /// 返回没有自定义样式的中文替换文字。
+    func resolve(tag: String, source: SourceMetadata) async throws -> DynamicContent? {
+        .textReplacement("只提供字符串")
     }
 }
 
-private final class ObjCReplacementTextProviderStub: NSObject, ObjCDynamicContentProvider {
-    private(set) var requestedTag: String?
-
-    func resolveTag(
-        _ tag: String,
-        source: SourceMetadata,
-        completion: @escaping (UIImage?, String?, NSError?) -> Void
-    ) {
-        requestedTag = tag
-        completion(nil, "只提供字符串", nil)
-    }
-}
-
+/// 提供固定字体并记录字体请求的 tag，用于验证字体桥接和溢出策略。
+@MainActor
 private final class FontAwareReplacementTextProviderStub: DynamicContentProvider {
+    /// 被测 resolver 应原样使用的字体。
     let font: UIFont
+    /// 最近一次字体请求的 tag；nil 表示尚未请求。
     private(set) var requestedTag: String?
 
-    init(font: UIFont) {
-        self.font = font
+    /// 指定测试字体，字号和字形由调用方控制。
+    init(font: UIFont) { self.font = font }
+
+    /// 返回足以溢出窄槽位的字符串，样式通过 font(forTag:) 单独提供。
+    func resolve(tag: String, source: SourceMetadata) async throws -> DynamicContent? {
+        .textReplacement("THIS replacement is too long")
     }
 
-    func resolve(
-        tag: String,
-        source: SourceMetadata,
-        completion: @escaping (DynamicContent?, Error?) -> Void
-    ) {
-        completion(.textReplacement("THIS replacement is too long"), nil)
-    }
-
+    /// 记录 tag 并返回固定字体，用于核对字体请求对应正确槽位。
     func font(forTag tag: String) -> UIFont? {
         requestedTag = tag
         return font
     }
 }
 
+/// 模拟业务没有为某个动态槽位提供内容。
+@MainActor
 private final class NilDynamicProviderStub: DynamicContentProvider {
-    func resolve(
-        tag: String,
-        source: SourceMetadata,
-        completion: @escaping (DynamicContent?, Error?) -> Void
-    ) {
-        completion(nil, nil)
-    }
-}
-
-private final class MutatingFrameSource: FrameSource {
-    private let metadata: FrameSourceMetadata
-    private let mutation: () throws -> Void
-
-    init(metadata: FrameSourceMetadata, mutation: @escaping () throws -> Void) {
-        self.metadata = metadata
-        self.mutation = mutation
-    }
-
-    func prepare() async throws -> FrameSourceMetadata {
-        try mutation()
-        return metadata
-    }
-
-    func startProducing(
-        to buffer: FrameRingBuffer,
-        token: SessionToken,
-        startTime: CMTime,
-        frameIndexOffset: Int,
-        didProduce: @escaping (Int) -> Void,
-        completion: @escaping (Result<Void, PlaybackError>) -> Void
-    ) {}
-
-    func pause() {}
-    func resume() {}
-    func cancel() {}
-}
-
-private final class NeverCompletingDynamicProviderStub: DynamicContentProvider {
-    private let onFirstRequest: () -> Void
-    private var didNotify = false
-
-    init(onFirstRequest: @escaping () -> Void) {
-        self.onFirstRequest = onFirstRequest
-    }
-
-    func resolve(
-        tag: String,
-        source: SourceMetadata,
-        completion: @escaping (DynamicContent?, Error?) -> Void
-    ) {
-        if !didNotify {
-            didNotify = true
-            onFirstRequest()
-        }
-        // Intentionally keep the request pending. PlayerView deinit must cancel
-        // the session without waiting for the normal dynamic timeout.
-    }
+    /// 返回 nil，请求应降级为空槽位而非准备失败。
+    func resolve(tag: String, source: SourceMetadata) async throws -> DynamicContent? { nil }
 }

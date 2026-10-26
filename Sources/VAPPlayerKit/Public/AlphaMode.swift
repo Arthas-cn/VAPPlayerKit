@@ -1,18 +1,13 @@
-import Foundation
-
-/// packed VAP 帧中 Alpha 通道相对 RGB 区域的空间布局。
-///
-/// 对照 `vap-master` 中 vapc 的 alpha 方向字段。不能用编码分辨率直接当画布尺寸。
-@objc(VPKAlphaMode)
-public enum AlphaMode: Int, Sendable {
-    /// Alpha 在画面左侧，RGB 在右侧。
+/// 解析后 Alpha 区域相对颜色区域的方向；不是透明布局的输入配置。
+public enum AlphaMode: Sendable, Hashable {
+    /// Alpha 区域在颜色区域左侧，双方沿 X 轴不相交。
     case left
-    /// Alpha 在画面右侧，RGB 在左侧。
+    /// Alpha 区域在颜色区域右侧，双方沿 X 轴不相交。
     case right
-    /// Alpha 在画面上方，RGB 在下方。
+    /// Alpha 区域在颜色区域上侧，双方沿 Y 轴不相交。
     case top
-    /// Alpha 在画面下方，RGB 在上方。
+    /// Alpha 区域在颜色区域下侧，双方沿 Y 轴不相交。
     case bottom
-    /// 普通视频没有 packed Alpha，RGB 使用完整编码画面。
+    /// 普通视频使用完整不透明画面，没有拼接 Alpha 区域。
     case none
 }

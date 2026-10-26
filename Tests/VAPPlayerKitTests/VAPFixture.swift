@@ -1,6 +1,6 @@
 import Foundation
 
-/// 定位仓库内提交的 VAP 样例。路径相对本测试源文件，不依赖 main bundle。
+/// 定位仓库内提交的 VAP 样例。资源来自测试 bundle，可在真机与模拟器运行。
 enum VAPFixture {
     /// 默认 Demo / 冒烟测试使用的最小合法 H.264 文件。
     static let defaultPlayableName = "18.mp4"
@@ -8,25 +8,27 @@ enum VAPFixture {
     /// 内容为 AccessDenied XML 的负向样例。
     static let invalidXMLNames = ["2.mp4", "9.mp4", "u1.mp4", "u2.mp4", "u3.mp4"]
 
+    /// 只返回当前 bundle 确实存在的负向资源，供目录断言使用。
     static var existingInvalidXMLNames: [String] {
         invalidXMLNames.filter { FileManager.default.fileExists(atPath: url($0).path) }
     }
 
+    /// 随测试目标打包的真实 fixture 目录，不依赖主机源码的绝对路径。
     static var directory: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/VAP", isDirectory: true)
+        Bundle.module.bundleURL.appendingPathComponent("VAP", isDirectory: true)
     }
 
+    /// 拼接测试 bundle 内的文件 URL，不替测试创建或下载缺失资源。
     static func url(_ fileName: String) -> URL {
         directory.appendingPathComponent(fileName)
     }
 
+    /// 默认合法素材在当前测试 bundle 内的 URL。
     static var defaultPlayableURL: URL {
         url(defaultPlayableName)
     }
 
+    /// 扫描 bundle 中所有 MP4 后缀文件，数字 ID 优先稳定排序。
     static var allMP4URLs: [URL] {
         (try? FileManager.default.contentsOfDirectory(
             at: directory,
@@ -36,17 +38,20 @@ enum VAPFixture {
         .sorted { numericID($0) < numericID($1) } ?? []
     }
 
+    /// 排除已知 XML 假文件后保留全部应能真实播放的素材。
     static var playableURLs: [URL] {
         let invalid = Set(invalidXMLNames)
         return allMP4URLs.filter { !invalid.contains($0.lastPathComponent) }
     }
 
+    /// 当前 bundle 中存在的补充场景，保持精简 fixture 环境可运行。
     static var optionalFixtureNames: [String] {
         ["home.mp4", "nationalDayEffect.mp4", "nation.mp4", "movie01.mp4", "movie02.mp4", "u1.mp4", "u2.mp4", "u3.mp4"].filter {
             FileManager.default.fileExists(atPath: url($0).path)
         }
     }
 
+    /// 数字文件按 ID 排列，具名资源放在数字之后。
     private static func numericID(_ url: URL) -> Int {
         Int(url.deletingPathExtension().lastPathComponent) ?? .max
     }

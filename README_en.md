@@ -1,343 +1,191 @@
-# VAPPlayerKit
+# VAPPlayerKit v2
 
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/iOS-15%2B-lightgrey.svg)](#requirements)
-[![Swift](https://img.shields.io/badge/Swift-5.9%2B-orange.svg)](#requirements)
-[![SPM](https://img.shields.io/badge/SPM-compatible-brightgreen.svg)](#installation)
+[简体中文](README.md) · [Architecture and lifecycle](docs/VAPPlayerKit_SPM_ARCHITECTURE.md) · [Changelog](CHANGELOG.md)
 
-[简体中文](README.md) | **English**
+A local video effects package for **Swift 6.4 and iOS 26**. It provides `VAPPlayerView` for SwiftUI and `PlayerView` for UIKit, with AVFoundation decoding, Metal transparency composition, and VAP image/text replacement slots.
 
-A standalone iOS player for VAP (Video Animation Player). The core is Swift, distributed via Swift Package Manager, with a stable Objective-C facade.
-
-Current stable version: `1.0.6`
-
-It plays the same local MP4 assets as [Tencent VAP](https://github.com/Tencent/vap): hardware decode, alpha compositing, and vapc fusion overlays (user names, avatars, and other dynamic slots). Networking, business caches, and play queues are out of scope — the host owns those.
-
-```swift
-import VAPPlayerKit
-
-let player = PlayerView()
-let options = PlaybackOptions.defaultOptions
-options.loopCount = 1
-player.play(url: fileURL, options: options)
-```
-
-## Why not official QGVAPlayer
-
-[Tencent VAP](https://github.com/Tencent/vap) (iOS: `QGVAPlayer`) defined the VAP container and the [VapTool](https://github.com/Tencent/vap/tree/master/tool) authoring pipeline. That repository is **unmaintained**; Tencent now points users at a commercial cloud product.
-
-VAPPlayerKit is **not** a Swift translation of QGVAPlayer, and it does not wrap the old API. After using the latest official sources only as a format/behavior reference, it reimplements parsing, decode, clocks, Metal compositing, and session lifetime as an iOS playback kernel that can ship on its own.
-
-| | Tencent VAP / QGVAPlayer | VAPPlayerKit |
-| --- | --- | --- |
-| Maintenance | Officially unmaintained | Independent open-source iOS player |
-| Language | Objective-C | Swift, with a `VPK*` Objective-C facade |
-| Public API | `UIView+VAP` category on any view | Dedicated `PlayerView` / `VPKPlayerView`; no UIView pollution |
-| Distribution | Copy sources, subproject, CocoaPods | Swift Package Manager; Metal shaders ship as package resources |
-| Minimum OS | iOS 8 | iOS 15 (Metal only, no OpenGL fallback) |
-| Decode / compose | VideoToolbox + Metal / OpenGL | System `AVAssetReader` hardware decode to NV12 + Metal |
-| Lifetime | Global decode thread pool and FPS dispatcher | Isolated session + token per playback; fast switches do not leak callbacks |
-| Callback threads | Most delegates run on a **background** thread | Main thread only; at most one terminal event per session |
-| Loop semantics | `repeatCount` is **extra repeats** (`0` plays once) | `loopCount` is **total plays** (`1` plays once, `0` loops forever) |
-| Audio | `setMute:` | `muted` / `embedded` / `external` / `disabled` |
-| Dynamic content | String tags + image-URL callback | Typed `DynamicContent`; auto type size, truncate, or marquee |
-| Animated slots | Host-defined | Optional: GIF / animated WebP when the host links SDWebImage; the kit does not depend on it |
-| Prepare | Play immediately | Split `prepare` / `play`; in-process metadata cache |
-| Errors | Generic `NSError` | Shared `VPKPlaybackError` domain and stage |
-| Observability | Custom logger | Optional `MetricsSink` (prepare, first frame, drops, …) |
-| Platforms | Android / iOS / Web | **iOS player only**; keep using official VapTool for authoring |
-
-Intentionally not ported from QGVAPlayer:
-
-- No compatibility with `playHWDMP4:`, `repeatCount`, or `QG*` / `HWD*` symbols.
-- No built-in tap/long-press hit testing; add UIKit gestures on `PlayerView`.
-- No Android / Web player; use the official implementations or other platform stacks.
-- No HTTP downloader, ZIP unpacker, gift queue, or image library.
-
-CocoaPods integration of the official library requires manually adding Metal shaders to the app target, or they never land in `default.metallib`. VAPPlayerKit compiles shaders as SPM resources, so that step is gone.
-
-## Features
-
-- Local `file://` MP4: H.264 / HEVC, system hardware decode to NV12.
-- `vapc` metadata v1 / v2; Alpha layouts Left / Right / Top / Bottom.
-- Legacy packed files without `vapc` probe one frame at 20%, 50%, and 70% of the asset duration in order, stopping at the first match, then automatically detect equal-sized Alpha/RGB regions on the left, right, top, or bottom. No `enableOldVersion` flag.
-- Each probe checks left Alpha first, then right, top, and bottom. A unique candidate with correlated Alpha/RGB detail takes priority over weaker color or brightness evidence. Multiple strong candidates, or only multiple weak candidates, remain inconclusive. Detection samples decoded NV12 planes directly. Content detection is heuristic: use `.vap` or `.ordinaryVideo` to override it when needed.
-- Metal compositing: YUV → RGB, packed Alpha unpack, fusion-animation mask overlays.
-- PTS media clock, bounded frame buffer, drop-late-frames. Video is not advanced by display refresh rate.
-- Controls: `prepare`, `play`, `pause`, `resume`, `stop`, `clear`.
-- Scaling: `scaleAspectFit` / `scaleAspectFill` / `scaleToFill` against the vapc **logical canvas**, not encoded resolution.
-- Background / off-screen: suspend and keep progress, or stop.
-- Dynamic images and text; text can auto-fit the slot, truncate, or marquee.
-- Mute, embedded MP4 audio, or host-managed external audio.
-- Swift and Objective-C APIs with aligned events, errors, and options.
-- In-process `AssetMetadataCache` so unchanged local files skip repeat inspection.
-
-## Requirements
-
-- iOS 15+
-- Swift 5.9+
-- Xcode 15+
+v2 has a new Swift API and one library product, `VAPPlayerKit`. There is no Objective-C facade or compatibility layer. This documentation describes the v2 working tree. Its release revision, build results, tests, and device validation are **pending maintainer verification**. Historical 1.x tags do not contain these interfaces.
 
 ## Installation
 
-In Xcode: File → Add Package Dependencies, then:
+Add this remote package URL in Xcode:
 
 ```text
 https://github.com/Arthas-cn/VAPPlayerKit.git
 ```
 
-Or in `Package.swift`:
-
-```swift
-.package(url: "https://github.com/Arthas-cn/VAPPlayerKit.git", from: "1.0.6")
-```
+Select a published, verified v2 revision/tag and link the product to the consuming App target:
 
 ```swift
 .product(name: "VAPPlayerKit", package: "VAPPlayerKit")
 ```
 
-Swift: `import VAPPlayerKit`. Objective-C: `@import VAPPlayerKitObjC;` (or `#import <VAPPlayerKitObjC/VPKPlayerKitObjC.h>`). The product includes both the Swift implementation and the ObjC header facade.
+Use `import VAPPlayerKit`. The manifest requires Swift tools 6.4, Swift 6 language mode, and iOS 26. Metal shaders are package resources. Local package paths are suitable for development; release dependencies must use the remote repository.
 
-## Quick start
+## Ownership and scope
 
-### Swift
-
-```swift
-import VAPPlayerKit
-
-let player = PlayerView()
-player.delegate = self
-player.dynamicContentProvider = self
-
-let options = PlaybackOptions.defaultOptions
-options.loopCount = 1          // play once; 2 plays twice; 0 loops forever
-options.audioMode = .embedded  // default; use .muted to silence
-player.play(url: fileURL, options: options)
-```
-
-Set `PlaybackOptions` before `play` / `prepare`. The session keeps a copy; mutating the original later does not affect the active playback.
-
-To read canvas size, duration, or dynamic slots first:
-
-```swift
-let metadata = try await player.prepare(url: fileURL, options: options)
-print(metadata.canvasSize, metadata.duration, metadata.dynamicSources)
-
-if metadata.isReusableForPlayback {
-    // Skip MP4 / vapc inspection when the same local file has not changed
-    player.play(url: fileURL, metadata: metadata, options: options)
-}
-```
-
-Callbacks:
-
-```swift
-func playerDidStart(_ player: PlayerView) {}
-func player(_ player: PlayerView, didUpdate metadata: AssetMetadata) {}
-func playerDidFinish(_ player: PlayerView, reason: FinishReason) {}
-func player(_ player: PlayerView, didFail error: Error) {}
-```
-
-All run on the main thread. `finish` and `fail` are mutually exclusive; a session emits at most one of them.
-
-### Objective-C
-
-```objc
-@import VAPPlayerKitObjC;
-
-VPKPlayerView *playerView = [[VPKPlayerView alloc] initWithFrame:CGRectZero];
-playerView.delegate = self;
-playerView.dynamicContentProvider = self;
-
-VPKPlaybackOptions *options = VPKPlaybackOptions.defaultOptions;
-options.loopCount = 1;
-[playerView playWithURL:fileURL options:options];
-```
-
-You can pass a `VPKAssetMetadata` previously produced for the same URL to `playWithURL:metadata:options:`. Only objects with `reusableForPlayback == YES` are valid for that path.
-
-`VPKPlayerViewDelegate` reports start, metadata, finish, and failure — also on the main thread.
-
-## Playback options
-
-| Field | Default | Meaning |
-| --- | --- | --- |
-| `loopCount` | `1` | Total plays. `0` loops forever. Negative values clamp to `1`. **Do not pass old `repeatCount` values unchanged.** |
-| `contentMode` | `.scaleAspectFit` | Scales against `canvasSize` |
-| `audioMode` | `.embedded` | `.muted` / `.embedded` / `.external` / `.disabled` |
-| `clearsAfterFinish` | `true` | Hide the current frame when finished |
-| `backgroundPolicy` | `.suspend` | Suspend or stop when backgrounded / removed from a window |
-| `dynamicImagePlaybackMode` | `.animated` | Animated slot images; still frames if SDWebImage is absent |
-| `dynamicTextOverflowMode` | `.truncate` | `.truncate` or `.marquee` |
-| `marqueeSpeed` | `80` | Marquee speed in pt/s |
-| `marqueeStartDelay` | `0.6` | Pause at the start of each scroll cycle, in seconds |
-
-`.external` means the kit creates no audio player; the host owns A/V sync. `.disabled` ignores the audio track, though metadata may still report `containsAudio`.
-
-## Dynamic fusion content
-
-vapc sources appear on `AssetMetadata.dynamicSources` with tag, slot size, and kind (image / text). The kit does **not** infer kind from the tag string, and it never issues network requests.
-
-### Swift
-
-```swift
-func resolve(
-    tag: String,
-    source: SourceMetadata,
-    completion: @escaping (DynamicContent?, Error?) -> Void
-) {
-    switch source.kind {
-    case .text:
-        completion(.textReplacement(values[tag] ?? ""), nil)
-    case .image:
-        completion(.image(images[tag]!), nil)
-    }
-}
-```
-
-Call `completion` exactly once.
-
-| `DynamicContent` | Use |
+| Package | Host application |
 | --- | --- |
-| `.textReplacement(String)` | Replace copy only. Uses vapc color, bold flag, and slot size to estimate a system font that fits |
-| `.text(_:attributes:)` | Fully specified font and color |
-| `.image(UIImage)` | Already-decoded image; the kit pre-scales to the slot. The host must download first, then return this case |
-| `.hidden` | Skip this slot for the current session |
+| Local MP4/VAP inspection, decoding, buffering, rendering | Downloads, ZIP/config.json, persistent caches and databases |
+| VAP, ordinary video and explicit packed Alpha layouts | Business format routing and resource preparation barriers |
+| Embedded audio, looping, pause/resume and cleanup | Global AVAudioSession and external audio synchronization |
+| Rendering prepared images and text into slots | Image downloads and shared SDWebImage caching |
+| Per-player lifecycle | Global load/resident limits and business playback queues |
 
-vapc does not embed a font file or an exact point size, so `.textReplacement` cannot restore the original family or size. Implement `font(forTag:)` to supply a `UIFont`; return `nil` to keep auto-sizing.
+Only local regular files are accepted. Keep the file readable and immutable throughout inspection, preparation, playback, and cleanup. The package does not own or delete source files.
 
-Auto-sizing shrinks at most three times, then defaults to `byTruncatingTail`. `.marquee` scrolls right-to-left when the string is wider than the slot; text that fits stays statically centered. Marquee clocks follow pause / suspend and are independent of video `loopCount`. The loop gap is a fixed 25 pt. Strings that exceed the texture budget fall back to truncation.
+## Asset modes
 
-If no provider is set, or a tag returns `nil` / `.hidden`, that slot is treated as transparent empty content. Video still prepares and plays.
+`PlaybackOptions` is a `Sendable, Equatable` value. Each session uses the value accepted at creation.
 
-Image slots always take `UIImage`. If the host links [SDWebImage](https://github.com/SDWebImage/SDWebImage) and passes `SDAnimatedImage` (`animatedImageFrameCount > 1`), the kit honors `dynamicImagePlaybackMode`. Animated WebP also needs `SDWebImageWebPCoder`. Check `PlaybackOptions.canPlayAnimatedDynamicImages` for runtime detection. Animated loops follow the VAP session and stop with it.
+| `assetMode` | Behavior |
+| --- | --- |
+| `.vap` (default) | Parse VAP; older files without vapc use a left-Alpha layout |
+| `.ordinaryVideo` | Use the full encoded frame; skip vapc and transparency detection |
+| `.packedAlpha(layout)` | Use the supplied color/Alpha rectangles without detection |
+| `.automatic` | Prefer vapc, then probe legacy packed content; otherwise use ordinary video |
 
-Compatibility: `.textReplacement` is a new public enum case; `.imageURL` has been removed (the kit does not download URLs — fetch first, then return `.image`). Existing exhaustive `switch`es on `DynamicContent` must add `.textReplacement` and drop `.imageURL` (or use `@unknown default`). That is a source-breaking change and should ship as a SemVer major.
+Choose an explicit mode when the format is already known. Business extensions, ZIP manifests, and protocol type routing belong to the host.
 
-### Objective-C
+```swift
+let options = PlaybackOptions(
+    assetMode: .vap,
+    loopCount: 1,
+    contentMode: .scaleAspectFit,
+    audioMode: .muted,
+    automaticallyResumesAfterSuspension: false,
+    dynamicImagePlaybackMode: .still
+)
+```
 
-```objc
-- (void)resolveTag:(NSString *)tag
-            source:(VPKSourceMetadata *)source
-        completion:(void (^)(UIImage *, NSString *, NSError *))completion {
-    if (source.kind == VPKDynamicSourceKindText) {
-        completion(nil, self.values[tag] ?: @"", nil);
-        return;
+`loopCount` is the total number of iterations: 1 means once, 0 means infinite. Negative values fail. Layout accepts `.scaleAspectFit`, `.scaleAspectFill`, and `.scaleToFill`, based on the logical canvas.
+
+## SwiftUI
+
+Create and retain a stable request ID in your MainActor view state. Here, `fileURL` is a local file already prepared by the host:
+
+```swift
+let request = VAPPlaybackRequest(
+    id: UUID(),
+    url: fileURL,
+    options: PlaybackOptions(assetMode: .vap, audioMode: .muted)
+)
+
+VAPPlayerView(
+    resource: request,
+    intent: .playing,
+    controlRevision: 0,
+    isVisible: true,
+    isMuted: false
+) { event in
+    // 先核对 event.requestID，再更新所属请求的业务状态。
+}
+.frame(width: 240, height: 240)
+```
+
+Do not create a fresh UUID on every `body` evaluation. Keep the same ID while URL/options are unchanged; use a new ID for replacement, configuration changes, or replay. Changing immutable input under the same ID fails. A terminal ID cannot restart.
+
+- Pause with `.paused`. Increment `controlRevision` for explicit play/pause/resume commands.
+- After a system pause, submit `.playing` with a new control revision. Returning to the foreground alone does not resume.
+- `.stopped`, `isVisible = false`, or `resource = nil` ends the request. Replay uses a new ID.
+- `isMuted` can change without replacing the request.
+- Supply actual visibility; a list's `onAppear` is not sufficient.
+- The SwiftUI layer owns lifecycle control: it forces `.suspend` and disables automatic kernel resumption.
+
+Events are `waitingForPresentation`, `preparing`, `ready`, `started`, `paused`, `resumed`, `finished`, and `failed`. `started` does not prove that a GPU frame has become visible. Each request has at most one terminal event. Provider and event callback are captured when the request is accepted.
+
+Terminal events may arrive before physical cleanup finishes. Do not immediately delete or overwrite source files on `finished`/`failed`. Resource schedulers that require an explicit file-release barrier should integrate through UIKit's `PlayerView.clearAndWait()`.
+
+## UIKit: inspect, prepare, play, drain
+
+Run these calls on MainActor. `container` must belong to an active window and have positive dimensions:
+
+```swift
+let player = PlayerView(frame: container.bounds)
+container.addSubview(player)
+player.isMuted = true
+let options = PlaybackOptions(
+    assetMode: .vap,
+    audioMode: .embedded,
+    automaticallyResumesAfterSuspension: false
+)
+let metadata = try await PlayerView.inspect(url: fileURL, options: options)
+try await player.prepare(url: fileURL, metadata: metadata, options: options)
+player.play(url: fileURL, metadata: metadata, options: options)
+```
+
+`play(url:options:)` can also own preparation directly. `prepare` does not start playback; the first start uses `play`. `resume()` continues a session that has already started. A ready session with matching URL, metadata, and full options is reused for its first play.
+
+`inspect` creates no playback session, dynamic provider, audio player, or GPU pipeline. Automatic classification may probe a few video frames. `metadata.dynamicSources` exposes actual tags, kinds, and slot sizes. Manually initialized `AssetMetadata` values are summaries with `isReusableForPlayback == false`, not reusable inspection credentials.
+
+```swift
+player.pause()
+player.resume()
+player.stop()
+
+// 回收文件使用权或复用上层加载名额之前，等待真实排空。
+await player.clearAndWait()
+player.removeFromSuperview()
+```
+
+`stop()` immediately stops output and starts managed cleanup. `clear()` also hides the image. `clearAndWait()` waits for registered preparation, provider, decoder, audio, and GPU work. Cancelling the wait does not make those resources immediately safe to release.
+
+`PlayerDelegate` is MainActor-isolated and exposes `playerDidStart`, `player(_:didUpdate:)`, `playerDidFinish(_:reason:)`, and `player(_:didFail:)`. Delegate, provider, and metrics properties on `PlayerView` are weak. The host retains them; an accepted session retains its provider until cleanup finishes.
+
+## Explicit packed Alpha
+
+This example uses a 1280×720 encoded frame, with 640×720 color on the left and Alpha on the right:
+
+```swift
+let layout = PackedAlphaLayout(
+    arrangement: .sideBySide,
+    colorRect: VideoPixelRect(x: 0, y: 0, width: 640, height: 720),
+    alphaRect: VideoPixelRect(x: 640, y: 0, width: 640, height: 720)
+)
+let options = PlaybackOptions(
+    assetMode: .packedAlpha(layout),
+    audioMode: .embedded,
+    automaticallyResumesAfterSuspension: false
+)
+```
+
+Coordinates are integer pixels from the top-left of the encoded frame, before the video track's `preferredTransform`. Use `.sideBySide` or `.topBottom`; rectangles must be disjoint along that axis and inside the encoded frame. Either side may contain color. Equal halves, equal dimensions, and even coordinates are not required. The canvas uses `colorRect` dimensions, and Alpha is sampled by corresponding local UV coordinates: white is opaque and black is transparent.
+
+This mode does not expose VAP dynamic slots. It does not describe native HEVC Alpha or separate color/Alpha files. Invalid rectangles fail with `invalidAlphaLayout`; they are not silently converted to a guessed layout.
+
+## Dynamic content
+
+Implement MainActor `DynamicContentProvider.resolve(tag:source:) async throws -> DynamicContent?`. Use `inspect` to discover tags and prepare images/text before playback.
+
+```swift
+/// 只转交宿主已准备的内容，不在播放器中建立网络或缓存服务。
+@MainActor
+final class PreparedContent: DynamicContentProvider {
+    /// 本次请求的覆盖快照。
+    let values: [String: DynamicContent]
+
+    /// 保存已经准备的内容。
+    init(values: [String: DynamicContent]) { self.values = values }
+
+    /// 未提供值时保留视频底图，不生成默认头像或文字。
+    func resolve(tag: String, source: SourceMetadata) async throws -> DynamicContent? {
+        values[tag]
     }
-    completion(self.images[tag], nil, nil);
 }
 ```
 
-Text slots return `replacementText` (same behavior as Swift `.textReplacement`). Image slots return `UIImage`. Optionally implement `fontForTag:`.
+Values are `.image(UIImage)`, `.textReplacement(String)`, `.text(String, attributes: TextAttributes)`, `.hidden`, or nil. Optional `font(forTag:)` returns a UIFont. Nil/hidden leaves the video background untouched.
 
-## Metadata cache
+Slots prepare sequentially. Provider errors fail preparation. The current per-slot deadline is 8 seconds; a timed-out provider is asked to cancel and remains owned until it actually returns. A non-cooperative provider can therefore delay cleanup. Do not await this same player's `clearAndWait()` inside its provider.
 
-A process-wide `AssetMetadataCache` reuses inspection results for the same local URL. Default capacity is 20. The cache lives in memory only and is dropped when file identity, size, or modification date changes.
+Animated image slots can consume compatible animated images when the host links SDWebImage. `.still` selects the first frame; `.animated` advances animation when available. Check `PlaybackOptions.canPlayAnimatedDynamicImages`. The package does not download images or create an SDWebImage cache. Text overflow supports `.truncate` and `.marquee`.
 
-```swift
-AssetMetadataCache.shared.countLimit = 32
-AssetMetadataCache.shared.remove(url: fileURL)
-AssetMetadataCache.shared.removeAll()
-```
+## Audio, metadata cache and verification
 
-Objective-C: `VPKAssetMetadataCache.sharedCache`. Setting capacity to `0` disables and clears the cache.
+`audioMode` defaults to `.embedded`. Preparation waits for both playable asset and ready item; runtime audio errors fail playback. `isMuted` applies before preparation and during playback. `.muted`, `.external`, and `.disabled` create no embedded audio player. The App owns global AVAudioSession policy.
 
-Reuse validates a stable file identity, size, and modification date around decoder prepare. Treat the local file as immutable for the prepare / play / stop lifetime. For untrusted concurrent writers, the host should publish an atomic download/cache result before handing the path to the player.
+`AssetMetadataCache.shared` is an actor with a default limit of 20 entries. Its key includes local URL and the entire asset mode/layout. Reuse validates path, file identifier, size, and modification time. Use `setCountLimit(_:)`, `remove(url:)`, or `removeAll()` for maintenance. These operations do not delete source files, stop playback, or provide a cleanup barrier.
 
-## Observability
+**v2 build, test and device validation results are pending.** Tests cover layout/configuration, metadata invalidation, audio cancellation/seeking, SwiftUI lifecycle, and parsing/rendering. Their presence is not a passing result. Release validation must include real fixture preparation, first frames, transparent backgrounds, sound, loops, foreground/background transitions, and repeated cleanup.
 
-Optionally implement `MetricsSink` and forward events to your APM. The kit does not log business URLs or image bytes by default.
-
-```swift
-player.metricsSink = self
-
-func record(_ event: MetricsEvent) {
-    // prepareDuration / firstFrameDuration / droppedFrame / sessionFinished ...
-}
-```
-
-Swift errors are `PlaybackError`; Objective-C uses `NSError`. The domain is `com.vapplayerkit.playback` in both languages.
-
-## Support matrix
-
-**In scope**
-
-- Local `file://` MP4
-- H.264 / HEVC
-- vapc v1 / v2 and four Alpha layouts
-- Legacy packed layout without vapc (ordered 20% / 50% / 70% single-frame probes, then automatic left / right / top / bottom Alpha detection)
-- Fusion-animation image/text slots and in-video masks
-
-**Out of scope**
-
-- Network URLs, HTTP download, retry, auth
-- ZIP extraction, on-disk business cache, play queues
-- A hard dependency on any image library (SDWebImage is runtime-detected only)
-- Gift, room, or priority-scheduler concepts
-- Android, Web, or authoring (use [VapTool](https://github.com/Tencent/vap/tree/master/tool))
-
-## Examples
-
-Open `VAPPlayerKit.xcworkspace` to build the Swift package, SwiftExample, and ObjectiveCExample together.
-
-The Swift sample copies `Tests/Fixtures/VAP` into the app bundle and scans every MP4 at launch:
-
-- The catalog lists each asset and auto-loops a muted preview while visible. Negative fixtures show an error badge only.
-- Playback Lab starts automatically with infinite loop, embedded audio, animated slots, and text marquee. Use it to exercise prepare / play / pause / resume / stop / clear, the three content modes, looping, audio, background policy, still vs animated slots, truncate vs marquee, and live metrics.
-- SwiftExample links SDWebImage and SDWebImageWebPCoder so GIF / animated WebP play. ObjectiveCExample does not, so the same assets show still frames.
-- Playback Lab can run a single-asset smoke test and export a diagnostics report. The catalog can batch-test every bundled asset on a real device.
-
-See [`Tests/Fixtures/README.md`](Tests/Fixtures/README.md) for the asset list. Those files are committed and shared by unit tests and demos.
-
-## Layout
-
-```text
-Sources/VAPPlayerKit/          Swift implementation and public API
-Sources/VAPPlayerKitObjC/      Objective-C header-only facade
-Tests/                         Unit tests
-Tests/Fixtures/VAP/            Checked-in VAP samples
-Examples/SwiftExample          Swift sample app
-Examples/ObjectiveCExample     Objective-C sample app
-```
-
-## Verification
-
-```sh
-xcodebuild \
-  -workspace .swiftpm/xcode/package.xcworkspace \
-  -scheme VAPPlayerKit \
-  -destination 'platform=iOS Simulator,name=iPhone 16' \
-  test
-```
-
-The release gate is that the Swift package builds and tests against the target iOS SDK. The Swift / Objective-C examples, device runs, long loops, and Instruments checks are optional maintainer validation. Release checks live in [`VAPPlayerKit_SPM_ARCHITECTURE.md`](VAPPlayerKit_SPM_ARCHITECTURE.md). Performance bounds and known limits: [`VAPPlayerKit_PERFORMANCE_EVALUATION.md`](VAPPlayerKit_PERFORMANCE_EVALUATION.md).
-
-On an iPhone 12, compared with the local `vap-master` implementation, the core path from prepare to the first GPU submission is about 30% faster on average across four key metrics. Cold-start performance improves by about 17%, warm-start performance by about 43%, and warm preparation by about 66–76%. Both regular assets and image/text replacement assets show gains.
-
-With a signed device attached, run `SwiftExampleUITests`:
-
-```sh
-xcodebuild \
-  -workspace VAPPlayerKit.xcworkspace \
-  -scheme SwiftExample \
-  -destination 'platform=iOS,id=<DEVICE_UDID>' \
-  -allowProvisioningUpdates \
-  test
-```
-
-That suite checks bundle scan counts, playback lifetime and metrics, runs a Fit / Fill / Stretch matrix, prepares and actually plays every valid asset, and asserts that negative assets are rejected.
-
-## Migrating from QGVAPlayer
-
-1. Replace any `UIView` + `playHWDMP4:` with `PlayerView`.
-2. Map `repeatCount` to `loopCount`: old `0` → new `1`, old `n` → new `n + 1`, infinite loop → `0`.
-3. Replace `setMute:` with `options.audioMode = .muted` or `.embedded`.
-4. Replace `contentForVapTag:` / `loadVapImageWithURL:` with `DynamicContentProvider`. Download images first, then return `.image`.
-5. Move UI work off background queues — new callbacks already arrive on the main thread.
-6. Keep gestures, downloaders, and play queues in the host.
-
-## License
-
-[Apache License 2.0](LICENSE)
-
-The VAP format and the official player [Tencent VAP](https://github.com/Tencent/vap) are MIT licensed. This repository is an independent implementation and does not include or redistribute the official iOS sources.
+License: [Apache-2.0](LICENSE).
