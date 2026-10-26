@@ -113,6 +113,10 @@ final class VAPViewTransport: VAPPlayerTransport, PlayerDelegate {
 final class VAPSwiftUIHost: UIView {
     /// Coordinator 拥有控制器；宿主反向引用保持弱，避免相互保留。
     weak var controller: VAPPlayerController?
+    /// 实际挂载过的窗口场景；短暂离窗仍观察它，避免漏掉系统失活。
+    private(set) weak var observedScene: UIWindowScene?
+    /// 窗口场景的活动状态，由入窗初值及场景通知更新，不依赖 SwiftUI Scene 环境。
+    private(set) var isSceneActive = false
 
     /// 创建空透明容器，不创建 Metal 资源。
     init() {
@@ -129,6 +133,11 @@ final class VAPSwiftUIHost: UIView {
     /// 新窗口可能改变屏幕 scale 与可呈现性，统一通知控制器复核门条件。
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        // 只有切换场景才重读初值；同一场景的 willDeactivate 不能被尚未变更的属性覆盖。
+        if let scene = window?.windowScene, scene !== observedScene {
+            observedScene = scene
+            isSceneActive = scene.activationState == .foregroundActive
+        }
         refreshAvailability()
     }
 
@@ -146,7 +155,16 @@ final class VAPSwiftUIHost: UIView {
         let isAvailable = window != nil
             && bounds.width.isFinite && bounds.height.isFinite
             && bounds.width > 0 && bounds.height > 0
+        controller?.setSceneActive(isSceneActive)
         controller?.setPresentationAvailable(isAvailable)
+    }
+
+    /// 只接受当前真实场景的生命周期；其他窗口的状态不能暂停或恢复本播放器。
+    func receiveSceneActivation(_ isActive: Bool, from scene: UIWindowScene) {
+        // 多窗口 App 的另一场景通知不属于此宿主，不能改写当前场景门。
+        guard scene === observedScene else { return }
+        isSceneActive = isActive
+        controller?.setSceneActive(isActive)
     }
 
     /// 将新请求视图放入同一个宿主，首帧准备前先给予有效尺寸。

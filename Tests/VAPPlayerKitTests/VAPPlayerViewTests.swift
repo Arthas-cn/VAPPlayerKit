@@ -1,12 +1,100 @@
 import Foundation
+import Observation
+import SwiftUI
 import Testing
 import UIKit
 @testable import VAPPlayerKit
 
-/// SwiftUI 入口的身份、展示门、暂停与排空回归；不依赖网络、Metal 或设备时间。
+/// SwiftUI 入口的身份、展示门、暂停与排空回归；包含真实 UIHostingController 挂载及可控状态机测试。
 @Suite(.timeLimit(.minutes(1)))
 @MainActor
 struct VAPPlayerViewTests {
+    /// UIKit 导航承载默认 SwiftUI 环境时，真实窗口仍应启动本地透明素材，系统恢复须新控制版本。
+    @Test
+    func hostingControllerUsesItsRealWindowSceneAndPreservesExplicitResume() async throws {
+        let scene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+                .first { $0.activationState == .foregroundActive }
+        )
+        let previousKeyWindow = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let navigation = UINavigationController(rootViewController: UIViewController())
+        let inputs = VAPHostedPlaybackInputs()
+        let probe = VAPHostedEventProbe()
+        let options = PlaybackOptions(
+            assetMode: .packedAlpha(PackedAlphaLayout(
+                arrangement: .sideBySide,
+                colorRect: VideoPixelRect(x: 752, y: 0, width: 752, height: 448),
+                alphaRect: VideoPixelRect(x: 0, y: 0, width: 752, height: 448)
+            )),
+            loopCount: 0,
+            audioMode: .disabled
+        )
+        let request = VAPPlaybackRequest(id: UUID(), url: VAPFixture.url("alpha_left_moive.mp4"), options: options)
+        let hosting = UIHostingController(rootView: VAPHostedRegressionView(request: request, inputs: inputs, probe: probe))
+        window.frame = scene.effectiveGeometry.coordinateSpace.bounds
+        window.rootViewController = navigation
+        window.makeKeyAndVisible()
+        navigation.pushViewController(hosting, animated: false)
+        navigation.view.layoutIfNeeded()
+        hosting.view.layoutIfNeeded()
+        var attachedController: VAPPlayerController?
+        defer {
+            // 播放控制器已在成功和失败路径排空，再拆窗口并还原宿主键窗口。
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKey()
+        }
+        do {
+            let host = try #require(findSwiftUIHost(in: hosting.view))
+            let controller = try #require(host.controller)
+            attachedController = controller
+            try #require(host.window === window && host.observedScene === scene)
+            try #require(host.bounds.width > 0 && host.bounds.height > 0)
+            try await probe.wait(for: .started)
+            #expect(host.isSceneActive)
+            #expect(probe.events.contains(.ready))
+            // 同时记录默认环境值与实际窗口证据，帮助区分环境缺失和零尺寸回归。
+            print("VAP_HOSTING_BRIDGE phase=\(String(describing: probe.environmentPhase)) scene=\(scene.activationState.rawValue) bounds=\(host.bounds)")
+
+            NotificationCenter.default.post(name: UIScene.willDeactivateNotification, object: scene)
+            try await probe.wait(for: .paused(.system))
+            NotificationCenter.default.post(name: UIScene.didActivateNotification, object: scene)
+            await controller.waitForPendingWork()
+            #expect(!probe.events.contains(.resumed))
+
+            // 仅显式的新控制版本解锁系统暂停；真实 SwiftUI 更新会传递到同一个 Coordinator。
+            inputs.controlRevision += 1
+            try await probe.wait(for: .resumed)
+            #expect(probe.events.filter { $0 == .started }.count == 1)
+            inputs.intent = .paused
+            inputs.controlRevision += 1
+            try await probe.wait(for: .paused(.user))
+            NotificationCenter.default.post(name: UIScene.willDeactivateNotification, object: scene)
+            NotificationCenter.default.post(name: UIScene.didActivateNotification, object: scene)
+            await controller.waitForPendingWork()
+            #expect(probe.events.filter { $0 == .resumed }.count == 1)
+        } catch {
+            // 即使真实播放失败，也必须排空内核后才移除 HostingController 与窗口。
+            attachedController?.dismantle()
+            await attachedController?.waitForPendingWork()
+            throw error
+        }
+        attachedController?.dismantle()
+        await attachedController?.waitForPendingWork()
+    }
+
+    /// 从真实 HostingController 的视图树寻找桥接宿主，不替换 transport 或手动制造入窗状态。
+    private func findSwiftUIHost(in view: UIView) -> VAPSwiftUIHost? {
+        // 找到真实类型后停止递归，避免对子视图做无关查询。
+        if let host = view as? VAPSwiftUIHost { return host }
+        for child in view.subviews {
+            // 桥接容器可能位于 SwiftUI 的中间 UIKit 包装层之下。
+            if let host = findSwiftUIHost(in: child) { return host }
+        }
+        return nil
+    }
+
     /// 无尺寸不开始准备；有尺寸后首次 prepare/play 各一次，同 ID 重绘保持稳定。
     @Test
     func waitsForPresentationAndDoesNotRestartOnRedraw() async throws {
@@ -343,5 +431,98 @@ struct VAPPlayerViewTests {
         cleanupGate.open()
         await transport.cleanupCompleted.wait()
         #expect(transport.cleanupCount == 1)
+    }
+}
+
+/// 真实 SwiftUI 挂载测试的外部控制值，通过 Observation 触发正常 representable 更新。
+@MainActor
+@Observable
+private final class VAPHostedPlaybackInputs {
+    /// 当前业务意图，不随场景激活通知变化。
+    var intent: VAPPlaybackIntent = .playing
+    /// 用户显式命令序号，系统通知不能替调用方递增。
+    var controlRevision: UInt64 = 0
+}
+
+/// 与 UIKit Demo 相同的 HostingController 内容，不人工注入 scenePhase 环境。
+@MainActor
+private struct VAPHostedRegressionView: View {
+    /// 真实本地素材请求，整个测试使用同一个身份。
+    let request: VAPPlaybackRequest
+    /// 状态机通过正常 SwiftUI 观察机制收到的输入。
+    let inputs: VAPHostedPlaybackInputs
+    /// 接收真实控制事件与环境诊断的测试探针。
+    let probe: VAPHostedEventProbe
+    /// 仅记录 UIKit 承载下的默认环境，播放判定由实际窗口负责。
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// 创建真实滚动容器与固定高度预览，复现 Demo 的桥接路径。
+    var body: some View {
+        ScrollView {
+            // 宽度来自真实 HostingController 布局，测试不能手动给桥接 host 伪造 bounds。
+            VAPPlayerView(
+                resource: request,
+                intent: inputs.intent,
+                controlRevision: inputs.controlRevision,
+                isMuted: true,
+                onEvent: probe.receive
+            )
+            .frame(height: 260)
+        }
+        .onAppear { probe.environmentPhase = scenePhase }
+    }
+}
+
+/// 用真实播放器事件唤醒挂载测试；失败或测试取消同样恢复等待，不靠固定延时。
+@MainActor
+private final class VAPHostedEventProbe {
+    /// 顺序保留真实业务事件，断言恢复次数和首次启动唯一性。
+    private(set) var events: [VAPPlaybackEvent.Kind] = []
+    /// SwiftUI 首次出现时报告的默认环境值；nil 表示尚未出现。
+    var environmentPhase: ScenePhase?
+    /// 当前条件等待的目标事件，nil 表示没有正在等待。
+    private var expected: VAPPlaybackEvent.Kind?
+    /// 单个串行等待者；事件或取消后必须取出并清空。
+    private var continuation: CheckedContinuation<Void, any Error>?
+    /// 真实失败的值错误，后续等待也必须立即失败。
+    private var failure: VAPPlaybackFailure?
+
+    /// 保存事件并恢复匹配等待；真实失败直接抛给测试，不伪装成窗口等待超时。
+    func receive(_ event: VAPPlaybackEvent) {
+        events.append(event.kind)
+        // 任何阶段的真实失败都保留，并唤醒尚在等其他事件的调用方。
+        if case let .failed(error) = event.kind {
+            failure = error
+            finish(.failure(error))
+        } else if expected == event.kind {
+            // 只匹配当前等待条件；其他低频事件仍保留用于最终断言。
+            finish(.success(()))
+        }
+    }
+
+    /// 等待指定事件；已经发生则立即返回，SDK 失败或任务取消原样抛出。
+    func wait(for kind: VAPPlaybackEvent.Kind) async throws {
+        try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            // 较早失败不能被后来查询已发生事件掩盖。
+            if let failure { throw failure }
+            // 真实回调可能先于测试进入等待，不能丢掉此前的结果。
+            if events.contains(kind) { return }
+            try await withCheckedThrowingContinuation { waiting in
+                expected = kind
+                continuation = waiting
+            }
+        } onCancel: {
+            // 超时取消可能来自任意执行器，回主线程结束等待以便执行窗口清理。
+            Task { @MainActor [weak self] in self?.finish(.failure(CancellationError())) }
+        }
+    }
+
+    /// 原子清除当前等待再恢复 continuation，防止回调重入重复完成。
+    private func finish(_ result: Result<Void, any Error>) {
+        let waiting = continuation
+        continuation = nil
+        expected = nil
+        waiting?.resume(with: result)
     }
 }

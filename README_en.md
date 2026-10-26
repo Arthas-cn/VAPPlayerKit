@@ -4,7 +4,7 @@
 
 A local video effects package for **Swift 6.4 and iOS 26**. It provides `VAPPlayerView` for SwiftUI and `PlayerView` for UIKit, with AVFoundation decoding, Metal transparency composition, and VAP image/text replacement slots.
 
-v2 has a new Swift API and one library product, `VAPPlayerKit`. There is no Objective-C facade or compatibility layer. This documentation describes the v2 working tree. Its release revision, build results, tests, and device validation are **pending maintainer verification**. Historical 1.x tags do not contain these interfaces.
+v2 has a new Swift API and one library product, `VAPPlayerKit`. There is no Objective-C facade or compatibility layer. The current version is **v2.0.0**. Historical 1.x tags do not contain these interfaces.
 
 ## Installation
 
@@ -14,7 +14,13 @@ Add this remote package URL in Xcode:
 https://github.com/Arthas-cn/VAPPlayerKit.git
 ```
 
-Select a published, verified v2 revision/tag and link the product to the consuming App target:
+Select **v2.0.0** or a compatible update, and declare the remote dependency:
+
+```swift
+.package(url: "https://github.com/Arthas-cn/VAPPlayerKit.git", from: "2.0.0")
+```
+
+Link the product to the consuming App target:
 
 ```swift
 .product(name: "VAPPlayerKit", package: "VAPPlayerKit")
@@ -186,6 +192,6 @@ Animated image slots can consume compatible animated images when the host links 
 
 `AssetMetadataCache.shared` is an actor with a default limit of 20 entries. Its key includes local URL and the entire asset mode/layout. Reuse validates path, file identifier, size, and modification time. Use `setCountLimit(_:)`, `remove(url:)`, or `removeAll()` for maintenance. These operations do not delete source files, stop playback, or provide a cleanup barrier.
 
-**v2 build, test and device validation results are pending.** Tests cover layout/configuration, metadata invalidation, audio cancellation/seeking, SwiftUI lifecycle, and parsing/rendering. Their presence is not a passing result. Release validation must include real fixture preparation, first frames, transparent backgrounds, sound, loops, foreground/background transitions, and repeated cleanup.
+Validation: **172 executions** across 130 test declarations pass on iPhone 15 / iOS 26.2, including completed GPU first frames for all **27 valid fixtures** and real embedded audio preparation/seeking for `1/10/17`. **Seven UI tests** pass on the existing simulator. Physical-device XCUITest runner handshaking remains an environment limitation; see the [validation record](docs/v2.0.0-validation.md).
 
 License: [Apache-2.0](LICENSE).

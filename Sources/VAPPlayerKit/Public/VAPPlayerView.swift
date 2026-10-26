@@ -3,8 +3,6 @@ import SwiftUI
 /// 稳定的 SwiftUI 播放入口；内部桥接 UIKit 内核，不下载资源或管理全局音频会话。
 @MainActor
 public struct VAPPlayerView: View {
-    /// 当前窗口场景状态，不使用全进程屏幕状态推断可见性。
-    @Environment(\.scenePhase) private var scenePhase
     /// nil 表示清空；相同 ID 的不可变内容必须保持一致。
     private let resource: VAPPlaybackRequest?
     /// 业务播放意图，与系统暂停分别保存。
@@ -50,7 +48,6 @@ public struct VAPPlayerView: View {
             controlRevision: controlRevision,
             isVisible: isVisible,
             isMuted: isMuted,
-            isSceneActive: scenePhase == .active,
             dynamicContentProvider: dynamicContentProvider,
             onEvent: onEvent
         )
@@ -70,8 +67,6 @@ private struct VAPPlayerRepresentable: UIViewRepresentable {
     let isVisible: Bool
     /// 当前静音值，允许同 ID 更新。
     let isMuted: Bool
-    /// 当前 SwiftUI 场景是否 active。
-    let isSceneActive: Bool
     /// 新请求接纳时固定的动态内容提供者。
     let dynamicContentProvider: (any DynamicContentProvider)?
     /// 当前请求接纳时固定的业务事件回调。
@@ -97,7 +92,8 @@ private struct VAPPlayerRepresentable: UIViewRepresentable {
             controlRevision: controlRevision,
             isVisible: isVisible,
             isMuted: isMuted,
-            isSceneActive: isSceneActive,
+            // UIKit 的 UIHostingController 未必提供 SwiftUI Scene 环境，以实际窗口场景为准。
+            isSceneActive: uiView.isSceneActive,
             dynamicContentProvider: dynamicContentProvider,
             onEvent: onEvent
         )

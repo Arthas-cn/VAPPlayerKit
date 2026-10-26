@@ -4,7 +4,7 @@
 
 面向 **Swift 6.4、iOS 26** 的本地视频特效播放包。提供 SwiftUI 的 `VAPPlayerView` 和 UIKit 的 `PlayerView`，使用 AVFoundation 解码、Metal 合成透明画面，支持 VAP 动态图片与文字槽位。
 
-v2 是全新的 Swift API：只发布一个 `VAPPlayerKit` library product，没有 Objective-C facade、对象复制配置或旧 API 兼容层。当前文档对应 v2 工作树，发布版本与构建、测试、真机结果**待维护者验证和登记**；不要用历史 1.x tag 验证本文接口。
+v2 是全新的 Swift API：只发布一个 `VAPPlayerKit` library product，没有 Objective-C facade、对象复制配置或旧 API 兼容层。当前版本为 **v2.0.0**；不要用历史 1.x tag 验证本文接口。
 
 ## 接入
 
@@ -14,7 +14,13 @@ v2 是全新的 Swift API：只发布一个 `VAPPlayerKit` library product，没
 https://github.com/Arthas-cn/VAPPlayerKit.git
 ```
 
-选择已经发布并核验的 v2 revision/tag，再给实际使用它的 App target 添加 product：
+选择 **v2.0.0** 或兼容更新，也可在 Package.swift 声明：
+
+```swift
+.package(url: "https://github.com/Arthas-cn/VAPPlayerKit.git", from: "2.0.0")
+```
+
+再给实际使用它的 App target 添加 product：
 
 ```swift
 .product(name: "VAPPlayerKit", package: "VAPPlayerKit")
@@ -192,6 +198,6 @@ final class PreparedContent: DynamicContentProvider {
 
 `AssetMetadataCache.shared` 是 actor，默认最多 20 项，键包含本地 URL 与完整 assetMode/透明布局。复用时校验路径、文件标识、大小、修改时间；源文件应保持不可变。可调用 `setCountLimit(_:)`、`remove(url:)`、`removeAll()`。清缓存不删文件、不停止播放器，也不是排空 API。
 
-验证状态：**v2 构建、单元/集成测试与真机回归待验证登记**。已有测试覆盖布局、配置、metadata 失效、音频取消/定位、SwiftUI 生命周期及解析/渲染路径；测试存在不等于已经通过。发布前需补真实 fixture 的 prepare、首帧、透明背景、内嵌声音、循环、前后台及反复清理验证。
+验证：iPhone 15（iOS 26.2）通过 130 项测试声明，含参数化共 **172 次**；全部 **27 个合法素材**完成真实 GPU 首帧；`1/10/17` 的真实音轨准备与定位通过。另在已启动模拟器通过 **7 项 UI 回归**。真机 XCUITest runner 仍有环境握手限制，详见[验证记录](docs/v2.0.0-validation.md)。
 
 许可证：[Apache-2.0](LICENSE)。

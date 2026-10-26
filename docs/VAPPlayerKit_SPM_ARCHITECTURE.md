@@ -1,6 +1,6 @@
 # VAPPlayerKit v2 架构与生命周期
 
-本文说明当前 v2 工作树的真实分层与使用合同。对外示例见[中文 README](../README.md)与[English README](../README_en.md)，发布记录见[CHANGELOG](../CHANGELOG.md)。构建、自动测试和真机验证结果待维护者登记；本文不代表已发布版本或已通过验证。
+本文说明 v2.0.0 的真实分层与使用合同。对外示例见[中文 README](../README.md)与[English README](../README_en.md)，发布记录见[CHANGELOG](../CHANGELOG.md)。实际通过范围与环境限制见 [v2.0.0 验证记录](v2.0.0-validation.md)。
 
 ## 1. 基线与边界
 
@@ -172,6 +172,8 @@ func font(forTag tag: String) -> UIFont?
 - `isMuted` 可原位改变；可见性由宿主提供，不能把列表 onAppear 当成真实可见性。
 - 每个事件带原 requestID；业务先核对身份，finished/failed 之后不再接纳该请求业务事件。
 
+场景状态取自宿主自己的 `UIWindowScene` 初值与生命周期通知，UIKit `UIHostingController` 的默认 SwiftUI `scenePhase` 不作为启动门；不同窗口互不干扰。active→inactive 仍锁存系统暂停，回前台不会自动解除。
+
 事件只有低频状态：等待展示、准备、ready、首次 started、paused、resumed 和终态。started 不是 GPU 首帧完成证明。终态可能早于资源排空，当前公开 SwiftUI 接口不提供 drain acknowledgment；需要严格文件 lease 屏障的统一资源层应通过 UIKit `clearAndWait` 桥接。
 
 ## 11. 验证范围
@@ -185,4 +187,4 @@ func font(forTag tag: String) -> UIFont?
 | `VAPPlayerKitTimingTests` | 时钟、时间换算和缓冲节奏 |
 | `VAPPlayerKitRendererTests` | 透明区域采样、shader 与渲染路径 |
 
-音频和 SwiftUI 单元场景使用可控门与替身验证交错顺序；测试存在不等于构建或执行成功。v2 构建、全部自动测试、真机帧呈现与声音结果目前待登记。发布前需核实真实 VAP/普通视频/显式透明布局、动态图片文字、循环、前后台、快速替换、重复 clearAndWait，以及上层文件在 drain 之前未被删除。
+音频和 SwiftUI 交错通过可控门验证；真机另验证真实音轨和全部素材 GPU 完成首帧。130 项声明含参数化共 172 次通过，模拟器 7 项 UI 回归通过。真机 XCUITest runner 握手限制、未人工听验扬声器及未做 Instruments 长时间跟踪均单独登记，详见[验证记录](v2.0.0-validation.md)。

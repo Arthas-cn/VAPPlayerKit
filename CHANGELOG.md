@@ -1,8 +1,8 @@
 # Changelog
 
-## 2.0.0 — Unreleased
+## 2.0.0 — 2026-10-26
 
-当前记录对应 v2 工作树，尚未表示已发布；构建、单元/集成测试及真机结果待维护者验证并补记。
+全新的 Swift API；不保留 1.x 或 Objective-C facade 兼容。验证范围与限制见 [v2.0.0 验证记录](docs/v2.0.0-validation.md)。
 
 - 基线更新为 Swift tools 6.4、Swift 6 language mode 和 iOS 26，仅保留 `VAPPlayerKit` Swift library product。
 - 移除 Objective-C facade；`PlaybackOptions`、`AssetMetadata` 和公开状态/错误使用 Swift 值类型，不提供旧对象复制配置或兼容层。
@@ -13,7 +13,10 @@
 - 新增 SwiftUI `VAPPlayerView`、稳定请求 ID、播放意图、controlRevision 和低频值事件；普通重绘不重播，系统暂停等待显式恢复。
 - 动态提供者改为 MainActor async throws，串行准备并保留非合作取消任务至实际退出。
 - 内嵌音频增加 readyToPlay 屏障、准备与运行期错误、实例静音及定位完成结果处理，取消后等待真实操作收尾。
-- 新增布局、配置、缓存、音频与 SwiftUI 生命周期回归测试；验证结果待补，不以新增测试文件代替通过记录。
+- 修复内嵌音轨 KVO 枚举的 `change.newValue` 为 nil 导致 preparing 超时，改读实际 item.status，并用 1/10/17 的真实音轨回归。
+- 非隔离资源所有者接管析构清理，避免 iOS 26.2 isolated deinit 运行时崩溃。
+- SwiftUI 桥接使用自身 UIWindowScene 初值及生命周期通知，修复 UIKit HostingController 的默认 scenePhase 导致永久等待的问题，继续要求系统暂停后显式恢复。
+- 真机 172 次单元/参数化测试通过，27 合法素材均完成真实 GPU 首帧；模拟器 7 项 UI 回归通过。
 
 下列 1.x 条目仅记录当时发布事实，其最低系统、接口和验证结果不适用于 v2。
 

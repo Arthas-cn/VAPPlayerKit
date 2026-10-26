@@ -90,6 +90,8 @@ final class VAPPlayerController {
     private var isDismantled = false
     /// 主线程音频中断观察句柄，dismantle 时同步移除。
     private var interruptionObserver: (any NSObjectProtocol)?
+    /// 实际 UIWindowScene 生命周期观察句柄，dismantle 时全部注销。
+    private var sceneObservers: [any NSObjectProtocol] = []
 
     /// 创建状态机，不立即创建 UIKit 播放器；工厂只供包内部替换与测试。
     init(makeTransport: @escaping TransportFactory = { provider, onEvent in
@@ -114,6 +116,25 @@ final class VAPPlayerController {
                       let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
                 self?.setAudioInterrupted(type == .began)
             }
+        }
+        // SwiftUI 外壳也可由 UIKit 承载，不能假设存在向下传播 scenePhase 的 SwiftUI Scene。
+        let sceneChanges: [(Notification.Name, Bool)] = [
+            (UIScene.didActivateNotification, true),
+            (UIScene.willDeactivateNotification, false),
+            (UIScene.didEnterBackgroundNotification, false),
+            (UIScene.didDisconnectNotification, false)
+        ]
+        for (name, isActive) in sceneChanges {
+            let observer = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) {
+                [weak host] notification in
+                // 先提取 MainActor 隔离的场景引用，不把包含任意 userInfo 的 Notification 送入 actor。
+                guard let scene = notification.object as? UIWindowScene else { return }
+                // Foundation 明确派发到主队列，同步关闭播放门，避免再调度造成短暂续播。
+                MainActor.assumeIsolated {
+                    host?.receiveSceneActivation(isActive, from: scene)
+                }
+            }
+            sceneObservers.append(observer)
         }
         host.refreshAvailability()
     }
@@ -179,6 +200,17 @@ final class VAPPlayerController {
         reconcile()
     }
 
+    /// 实际场景失活时锁存系统暂停；再次 active 只解除物理门，不代替显式恢复。
+    func setSceneActive(_ isActive: Bool) {
+        // 重复 layout 或相同场景通知不应反复驱动内核。
+        guard isSceneActive != isActive else { return }
+        let wasActive = isSceneActive
+        isSceneActive = isActive
+        // 初次入窗前的未知状态不锁存；真实 active → inactive 必须等新控制版本恢复。
+        if wasActive && !isActive { run?.requiresExplicitResume = true }
+        reconcile()
+    }
+
     /// 音频中断结束只解除物理门，仍等待业务显式恢复。
     func setAudioInterrupted(_ isInterrupted: Bool) {
         isAudioInterrupted = isInterrupted
@@ -196,6 +228,8 @@ final class VAPPlayerController {
             NotificationCenter.default.removeObserver(interruptionObserver)
             self.interruptionObserver = nil
         }
+        for observer in sceneObservers { NotificationCenter.default.removeObserver(observer) }
+        sceneObservers.removeAll()
         if let run { finish(run, with: .finished(.cancelled)) }
         host?.controller = nil
         host = nil
