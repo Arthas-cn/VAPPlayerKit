@@ -492,3 +492,40 @@ private final class ControlledAudioDriver: AudioPlaybackDriver {
         seekWaiters.removeFirst().resume(returning: finished)
     }
 }
+
+/// 使用 bundle 内真实音轨验证 AVFoundation 的准备、定位和排空，不替宿主配置音频会话。
+@Suite(.timeLimit(.minutes(1)))
+@MainActor
+struct AudioCoordinatorIntegrationTests {
+    /// 曾卡在 preparing 的 1/10/17 必须通过真实 item readiness、完成系统 seek，并排空无故障。
+    @Test(arguments: ["1.mp4", "10.mp4", "17.mp4"])
+    func embeddedFixturePreparesSeeksAndDrains(fileName: String) async throws {
+        let url = VAPFixture.url(fileName)
+        let metadata = try await PlayerView.inspect(
+            url: url,
+            options: PlaybackOptions(assetMode: .ordinaryVideo)
+        )
+        // 必须检查实际容器，避免素材没有音轨时走无声旁路却误报真实驱动通过。
+        try #require(metadata.containsAudio, "\(fileName) 必须包含内嵌音轨。")
+        try #require(metadata.duration.isFinite && metadata.duration > 0)
+
+        let coordinator = AudioCoordinator()
+        var runtimeFailures: [PlaybackError] = []
+        coordinator.onFailure = { runtimeFailures.append($0) }
+        do {
+            try await coordinator.prepare(url: url, mode: .embedded, containsAudio: metadata.containsAudio)
+            let result: Result<Void, PlaybackError> = await withCheckedContinuation { continuation in
+                coordinator.seek(to: min(0.25, metadata.duration / 2)) { result in
+                    continuation.resume(returning: result)
+                }
+            }
+            try result.get()
+        } catch {
+            // 失败也等待真实系统任务退出，再把原始错误交给测试框架，不能用取消或静音掩盖故障。
+            await coordinator.stopAndWait()
+            throw error
+        }
+        await coordinator.stopAndWait()
+        #expect(runtimeFailures.isEmpty)
+    }
+}

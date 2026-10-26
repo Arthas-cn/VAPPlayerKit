@@ -63,13 +63,15 @@ final class AVFoundationAudioDriver: AudioPlaybackDriver {
         item = AVPlayerItem(asset: asset)
         player = AVPlayer()
         player.actionAtItemEnd = .pause
-        let statusObservation = item.observe(\.status, options: [.initial, .new]) { _, change in
-            switch change.newValue {
+        let statusObservation = item.observe(\.status, options: [.initial, .new]) { observedItem, _ in
+            // ObjC 枚举在 typed KVO change.newValue 中可能始终为 nil；直接读取被观察对象的实际状态。
+            // https://github.com/swiftlang/swift-corelibs-foundation/issues/3807
+            switch observedItem.status {
             // ready 事件只是一个门，异步 asset 检查仍由上层合并。
-            case .readyToPlay?:
+            case .readyToPlay:
                 events(.ready)
             // 不跨线程转交 item.error，错误描述保持稳定且不泄露文件路径。
-            case .failed?:
+            case .failed:
                 events(.failed(.audioFailed(reason: "Embedded audio item failed.")))
             // unknown 不是失败，继续等待 ready 或准备超时。
             default:

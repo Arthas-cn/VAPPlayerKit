@@ -86,8 +86,8 @@ final class PlaybackDetailViewController: UIViewController {
     /// 仅支持程序化页面，不接受 storyboard 构造。
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    /// 只取消已拥有的任务；底层资源由 PlayerView 的受管清理兜底。
-    isolated deinit {
+    /// 仅取消 Sendable 任务句柄；非隔离析构避免旧 iOS 26 运行时的 executor-hop 问题。
+    nonisolated deinit {
         operationTask?.cancel()
     }
 
